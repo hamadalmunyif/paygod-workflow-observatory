@@ -16,7 +16,7 @@ on:
       request_json:
         description: "Internal request candidate JSON. This is NOT submitted to ACP."
         required: true
-        default: "{"limit":5}"
+        default: '{"limit":5}'
         type: string
 
 permissions:
