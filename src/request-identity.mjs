@@ -47,6 +47,14 @@ export function buildRequestIdentityCommitment({
   };
 }
 
+function sameCapability(a, b) {
+  return (
+    a?.agentId === b?.agentId &&
+    a?.capabilityId === b?.capabilityId &&
+    a?.capabilityName === b?.capabilityName
+  );
+}
+
 export function assertSubmittedRequestIdentity({
   selectedDescriptor,
   requestPayload,
@@ -60,14 +68,48 @@ export function assertSubmittedRequestIdentity({
     selectedDescriptor,
     requestPayload,
   });
+  const frozen = submittedRequestIdentity.commitment ?? {};
 
+  if (!sameCapability(recomputed.commitment.capability, frozen.capability)) {
+    fail(
+      "REQUEST_CAPABILITY_MISMATCH",
+      "Current capability identity differs from the frozen submitted request"
+    );
+  }
+  if (
+    recomputed.commitment.descriptorCanonicalSha256 !==
+    frozen.descriptorCanonicalSha256
+  ) {
+    fail(
+      "REQUEST_DESCRIPTOR_DIGEST_MISMATCH",
+      "Current descriptor differs from the frozen submitted request"
+    );
+  }
+  if (
+    recomputed.commitment.requirementsCanonicalSha256 !==
+    frozen.requirementsCanonicalSha256
+  ) {
+    fail(
+      "REQUEST_REQUIREMENTS_DIGEST_MISMATCH",
+      "Current requirements contract differs from the frozen submitted request"
+    );
+  }
+  if (
+    recomputed.commitment.requestPayloadCanonicalSha256 !==
+    frozen.requestPayloadCanonicalSha256
+  ) {
+    fail(
+      "REQUEST_PAYLOAD_DIGEST_MISMATCH",
+      "Current request payload differs from the frozen submitted request"
+    );
+  }
   if (
     recomputed.submittedRequestIdentitySha256 !==
     submittedRequestIdentity.submittedRequestIdentitySha256
   ) {
     fail(
       "REQUEST_IDENTITY_MISMATCH",
-      "Current request/contract does not match the frozen submitted request identity"
+      "Current request identity differs from the frozen submitted request identity"
     );
   }
 
