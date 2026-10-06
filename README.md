@@ -10,7 +10,7 @@ External dependency:
 
 `hamadalmunyif/acp-cli` pinned baseline: `9d2be827cc19e4ea2cecfff3896398607537ea3e` (v1.0.40 / acp-node-v2 0.1.15).
 
-The observatory is deliberately separate from the public fork. ACP acquisition remains outside this repository; this repository consumes saved/stdin JSON only.
+The observatory is deliberately separate from the public fork. Its normalizers still consume saved/stdin JSON only. An optional GitHub Actions witness can perform a bounded authenticated marketplace read through a pinned `acp-cli` checkout, then hand the captured JSON into the same offline normalization path.
 
 ## Model
 
@@ -44,7 +44,7 @@ Normalize a saved `acp job history ... --json` response:
 node bin/workflow-observatory.mjs inspect --input history.json
 ```
 
-This design intentionally accepts files/stdin instead of calling ACP itself. Acquisition and normalization remain separate boundaries.
+This design intentionally keeps acquisition and normalization as separate boundaries. The normalizer never authenticates to ACP. The repository-native Actions witness uses a separate acquisition script, and the resulting bytes are passed into the same file/stdin normalization interface.
 
 ## Provenance
 
@@ -75,3 +75,23 @@ npm test
 ```
 
 Current baseline: 6 invariant tests.
+
+
+## Repository-native ACP -> PayGod shadow witness
+
+The private workflow `.github/workflows/acp-paygod-shadow.yml` is an internal, manual witness. It:
+
+1. checks out the pinned `acp-cli` source;
+2. obtains a one-time human authorization URL and waits;
+3. performs only `AgentApi.browse()` / `GET /agents/search`;
+4. builds an Observation Pack;
+5. selects an exact offering and constructs an internal **Request Candidate**;
+6. checks out the pinned PayGod kernel without modifying it;
+7. runs an external shadow pack through the canonical PayGod CLI;
+8. uploads the evidence as a short-lived private Actions artifact.
+
+The Request Candidate is **not submitted to ACP**. Live ACP job creation, signing, funding, resource invocation, and execution remain unauthorized.
+
+The first run should leave `request_json` blank. That intentionally exercises the PayGod environment with a `WITHHELD_NO_PAYLOAD` request and should produce a shadow `flag`, not an execution authorization.
+
+See `docs/REPO_NATIVE_SHADOW.md`.

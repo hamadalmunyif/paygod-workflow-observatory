@@ -1,0 +1,74 @@
+name: shadow-contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-shadow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout observatory
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run observatory tests
+        run: npm test
+
+      - name: Build fixture Observation Pack
+        run: |
+          node bin/workflow-observatory.mjs discover             --input test/fixtures/browse.json             --query risk             --output-dir out/fixture/observation-pack
+
+      - name: Build withheld fixture Request Candidate
+        run: |
+          node scripts/build-shadow-request.mjs             --normalized out/fixture/observation-pack/normalized.json             --manifest out/fixture/observation-pack/manifest.json             --offering "Company Risk Analysis"             --output out/fixture/request-shadow.json
+
+      - name: Checkout pinned PayGod kernel
+        uses: actions/checkout@v4
+        with:
+          repository: hamadalmunyif/paygod-kernel-mvp
+          ref: 23ea2cca74ef8b698718c6d0c8dbda447f13bb37
+          path: external/paygod-kernel
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Confirm PayGod repository boundary
+        working-directory: external/paygod-kernel
+        run: python3 tools/check_repository_boundary.py --scan-current
+
+      - name: Publish canonical PayGod CLI
+        run: dotnet publish external/paygod-kernel/src/PayGod.Cli/PayGod.Cli.csproj -c Release -o out/paygod-cli
+
+      - name: Run fixture through PayGod shadow pack
+        env:
+          PAYGOD_CLOCK: "1970-01-01T00:00:00Z"
+          PAYGOD_RUNNER_IMAGE: "paygod/internal-shadow"
+          PAYGOD_RUNNER_DIGEST: "git:23ea2cca74ef8b698718c6d0c8dbda447f13bb37"
+        run: |
+          mkdir -p out/fixture/paygod
+          dotnet out/paygod-cli/PayGod.Cli.dll run             --pack packs/acp-request-admission-shadow             --input out/fixture/request-shadow.json             --out out/fixture/paygod
+
+      - name: Assert withheld request stays flag
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const receipt = JSON.parse(fs.readFileSync('out/fixture/paygod/receipt.json','utf8'));
+          if (receipt.verdict.value !== 'flag') {
+            throw new Error(`Expected flag, got ${receipt.verdict.value}`);
+          }
+          if (receipt.verdict.rule_name !== 'payload-missing') {
+            throw new Error(`Expected payload-missing, got ${receipt.verdict.rule_name}`);
+          }
+          console.log('PASS: withheld ACP request remains shadow flag.');
+          NODE
