@@ -144,6 +144,7 @@ jobs:
           NODE
 
       - name: Upload private witness artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: acp-paygod-shadow-${{ github.run_id }}
