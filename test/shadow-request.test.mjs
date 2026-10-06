@@ -119,7 +119,7 @@ test("payload mutation after identity freeze fails closed", async () => {
         requestPayload: { company: "XYZ" },
         submittedRequestIdentity: identity,
       }),
-    (err) => err.code === "REQUEST_IDENTITY_MISMATCH"
+    (err) => err.code === "REQUEST_PAYLOAD_DIGEST_MISMATCH"
   );
 });
 
