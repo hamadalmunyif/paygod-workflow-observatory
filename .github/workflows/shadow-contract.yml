@@ -29,7 +29,12 @@ jobs:
 
       - name: Build withheld fixture Request Candidate
         run: |
-          node scripts/build-shadow-request.mjs             --normalized out/fixture/observation-pack/normalized.json             --manifest out/fixture/observation-pack/manifest.json             --offering "Company Risk Analysis"             --output out/fixture/request-shadow.json
+          node scripts/build-shadow-request.mjs \
+            --raw out/fixture/observation-pack/raw.json \
+            --normalized out/fixture/observation-pack/normalized.json \
+            --manifest out/fixture/observation-pack/manifest.json \
+            --offering "Company Risk Analysis" \
+            --output out/fixture/request-shadow.json
 
       - name: Checkout pinned PayGod kernel
         uses: actions/checkout@v4

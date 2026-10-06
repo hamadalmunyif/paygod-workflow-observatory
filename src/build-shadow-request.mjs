@@ -1,6 +1,19 @@
 import { PROVENANCE, provenance } from "./provenance.mjs";
 import { sha256CanonicalJson } from "./digest.mjs";
 import { validateJsonSchemaSubset } from "./schema-validate.mjs";
+import { assertSubmittedRequestIdentity } from "./request-identity.mjs";
+
+export class AdmissionError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "AdmissionError";
+    this.code = code;
+  }
+}
+
+function fail(code, message) {
+  throw new AdmissionError(code, message);
+}
 
 function offeringDescriptors(descriptorSet) {
   return Array.isArray(descriptorSet?.descriptors)
@@ -8,12 +21,23 @@ function offeringDescriptors(descriptorSet) {
     : [];
 }
 
+function schemaDecisionReason(validation) {
+  const first = validation?.errors?.[0]?.code;
+  return first ? `SCHEMA_${first}` : "SCHEMA_REJECTED";
+}
+
 export function buildShadowRequest({
   descriptorSet,
   observationManifest,
+  packVerification,
   offeringName,
   requestPayload = null,
+  submittedRequestIdentity = null,
 }) {
+  if (packVerification?.status !== "VERIFIED") {
+    fail("PACK_NOT_VERIFIED", "Observation pack must be verified before projection/admission");
+  }
+
   const offerings = offeringDescriptors(descriptorSet);
   const selected =
     offerings.find((item) => item?.capability?.name === offeringName) ?? null;
@@ -22,15 +46,24 @@ export function buildShadowRequest({
 
   let schemaValidation = "NOT_RUN";
   let validationErrorCount = 0;
+  let validationCodes = [];
+  let decisionReasonCode;
 
-  if (selected && payloadPresent) {
-    if (requirements) {
-      const validation = validateJsonSchemaSubset(requirements, requestPayload);
-      schemaValidation = validation.ok ? "LOCAL_VALIDATED" : "LOCAL_REJECTED";
-      validationErrorCount = validation.errors.length;
-    } else {
-      schemaValidation = "UNAVAILABLE";
-    }
+  if (!selected) {
+    decisionReasonCode = "ADMISSION_DESCRIPTOR_NOT_FOUND";
+  } else if (!payloadPresent) {
+    decisionReasonCode = "ADMISSION_PAYLOAD_MISSING";
+  } else if (requirements) {
+    const validation = validateJsonSchemaSubset(requirements, requestPayload);
+    schemaValidation = validation.ok ? "LOCAL_VALIDATED" : "LOCAL_REJECTED";
+    validationErrorCount = validation.errors.length;
+    validationCodes = validation.errors.map((error) => error.code);
+    decisionReasonCode = validation.ok
+      ? "ADMISSION_LOCAL_VALIDATED"
+      : schemaDecisionReason(validation);
+  } else {
+    schemaValidation = "UNAVAILABLE";
+    decisionReasonCode = "ADMISSION_SCHEMA_UNAVAILABLE";
   }
 
   const requestStatus = !selected
@@ -55,9 +88,14 @@ export function buildShadowRequest({
       }
     : null;
 
-  const requestPayloadCanonicalSha256 = payloadPresent
-    ? sha256CanonicalJson(requestPayload)
-    : null;
+  let frozenIdentity = null;
+  if (selected && payloadPresent) {
+    frozenIdentity = assertSubmittedRequestIdentity({
+      selectedDescriptor: selected,
+      requestPayload,
+      submittedRequestIdentity,
+    });
+  }
 
   return {
     kind: "acp-request-shadow",
@@ -69,10 +107,18 @@ export function buildShadowRequest({
         rawSha256: observationManifest?.source?.sha256 ?? null,
         normalizedCanonicalSha256:
           observationManifest?.normalized?.canonicalSha256 ?? null,
+        manifestCanonicalSha256:
+          packVerification?.manifestCanonicalSha256 ?? null,
+      },
+      packVerification: {
+        status: packVerification.status,
+        derivation: packVerification.derivation,
+        externalAnchorStatus: packVerification.externalAnchorStatus,
+        observationAuthenticity: packVerification.observationAuthenticity,
       },
       provenance: provenance(
         PROVENANCE.LOCAL_DERIVED,
-        "bound from Workflow Observatory observation pack"
+        "bound from a verified Workflow Observatory observation pack"
       ),
     },
     workflow: {
@@ -91,15 +137,26 @@ export function buildShadowRequest({
     },
     request: {
       status: requestStatus,
+      decisionReasonCode,
       payloadPresent,
-      requestPayloadCanonicalSha256,
+      requestPayloadCanonicalSha256:
+        frozenIdentity?.commitment?.requestPayloadCanonicalSha256 ?? null,
+      submittedRequestIdentitySha256:
+        frozenIdentity?.submittedRequestIdentitySha256 ?? null,
+      admittedRequestIdentitySha256:
+        schemaValidation === "LOCAL_VALIDATED"
+          ? frozenIdentity?.submittedRequestIdentitySha256 ?? null
+          : null,
+      identityProfile:
+        frozenIdentity?.profile ?? "workflow-observatory/request-identity/v0",
       requirementsSchemaObserved: requirements !== null,
       schemaValidation,
       validationErrorCount,
+      validationCodes,
       provenance: payloadPresent
         ? provenance(
             PROVENANCE.LOCAL_DERIVED,
-            "candidate payload bound by canonical digest; raw payload remains outside PayGod input"
+            "candidate payload verified against a frozen local request identity; raw payload remains outside PayGod input"
           )
         : provenance(PROVENANCE.UNKNOWN, "no request payload supplied"),
     },
@@ -117,13 +174,17 @@ export function buildShadowRequest({
       paygodMode: "shadow-only",
     },
     trust: {
-      sourceAuthenticity: "UNKNOWN",
+      observationIntegrity: "VERIFIED_WITHIN_PACK",
+      observationAuthenticity: "NOT_PROVEN",
+      externalManifestAnchor: packVerification.externalAnchorStatus,
       sourceTruth: "UNKNOWN",
       independentTimeAuthority: "UNKNOWN",
       requestSchemaCorrectness:
         schemaValidation === "LOCAL_VALIDATED"
           ? "LOCAL_VALIDATED_NOT_ACP_ACCEPTANCE"
           : "NOT_VALIDATED",
+      decisionArtifactPortability:
+        "PRODUCED_NOT_INDEPENDENTLY_VERIFIED_FOR_THIS_WITNESS",
     },
   };
 }

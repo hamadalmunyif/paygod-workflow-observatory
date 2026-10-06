@@ -1,0 +1,77 @@
+name: witness-002b-adversarial-admission
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Completed live ACP witness run ID"
+        required: true
+        default: "37474713196"
+        type: string
+      offering_name:
+        description: "Exact offering name observed in the source witness"
+        required: true
+        default: "getCongressTrades"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  adversarial-admission:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout observatory
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run invariant tests
+        run: npm test
+
+      - name: Download source live witness
+        uses: actions/download-artifact@v4
+        with:
+          name: acp-paygod-shadow-${{ inputs.source_run_id }}
+          path: out/source
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Run adversarial admission matrix
+        env:
+          OFFERING_NAME: ${{ inputs.offering_name }}
+        run: |
+          node scripts/witness-002b.mjs \
+            --source-dir out/source/observation-pack \
+            --output-dir out/witness-002b \
+            --offering "$OFFERING_NAME"
+
+      - name: Assert matrix closure
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const matrix = JSON.parse(fs.readFileSync('out/witness-002b/matrix.json','utf8'));
+          if (!matrix.allExpectedCodesObserved) {
+            throw new Error('Witness 002b matrix did not observe every frozen expected code');
+          }
+          const trustCase = matrix.cases.find((row) => row.id === '002b-08-whole-pack-coherent-rewrite');
+          if (trustCase?.observedCode !== 'CONSISTENT_UNANCHORED') {
+            throw new Error('Expected coherent whole-pack rewrite to remain internally consistent but unanchored');
+          }
+          if (matrix.sourceObservation.observationAuthenticity !== 'NOT_PROVEN') {
+            throw new Error('Observation authenticity must remain NOT_PROVEN');
+          }
+          console.log('PASS: Witness 002b adversarial matrix closed with expected reason codes.');
+          NODE
+
+      - name: Upload Witness 002b artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: witness-002b-adversarial-${{ github.run_id }}
+          path: out/witness-002b
+          retention-days: 14
+          if-no-files-found: error
