@@ -1,5 +1,6 @@
 import { PROVENANCE, provenance } from "./provenance.mjs";
 import { sha256CanonicalJson } from "./digest.mjs";
+import { validateJsonSchemaSubset } from "./schema-validate.mjs";
 
 function offeringDescriptors(descriptorSet) {
   return Array.isArray(descriptorSet?.descriptors)
@@ -19,11 +20,28 @@ export function buildShadowRequest({
   const payloadPresent = requestPayload !== null;
   const requirements = selected?.requestContract?.requirements ?? null;
 
+  let schemaValidation = "NOT_RUN";
+  let validationErrorCount = 0;
+
+  if (selected && payloadPresent) {
+    if (requirements) {
+      const validation = validateJsonSchemaSubset(requirements, requestPayload);
+      schemaValidation = validation.ok ? "LOCAL_VALIDATED" : "LOCAL_REJECTED";
+      validationErrorCount = validation.errors.length;
+    } else {
+      schemaValidation = "UNAVAILABLE";
+    }
+  }
+
   const requestStatus = !selected
     ? "WITHHELD_NO_DESCRIPTOR"
     : !payloadPresent
       ? "WITHHELD_NO_PAYLOAD"
-      : "CANDIDATE_UNVALIDATED";
+      : schemaValidation === "LOCAL_REJECTED"
+        ? "WITHHELD_SCHEMA_INVALID"
+        : schemaValidation === "LOCAL_VALIDATED"
+          ? "CANDIDATE_LOCAL_VALIDATED"
+          : "CANDIDATE_UNVALIDATED";
 
   const selectedDescriptorRef = selected
     ? {
@@ -76,7 +94,8 @@ export function buildShadowRequest({
       payloadPresent,
       requestPayloadCanonicalSha256,
       requirementsSchemaObserved: requirements !== null,
-      schemaValidation: "NOT_RUN",
+      schemaValidation,
+      validationErrorCount,
       provenance: payloadPresent
         ? provenance(
             PROVENANCE.LOCAL_DERIVED,
@@ -101,7 +120,10 @@ export function buildShadowRequest({
       sourceAuthenticity: "UNKNOWN",
       sourceTruth: "UNKNOWN",
       independentTimeAuthority: "UNKNOWN",
-      requestSchemaCorrectness: "NOT_VALIDATED",
+      requestSchemaCorrectness:
+        schemaValidation === "LOCAL_VALIDATED"
+          ? "LOCAL_VALIDATED_NOT_ACP_ACCEPTANCE"
+          : "NOT_VALIDATED",
     },
   };
 }
