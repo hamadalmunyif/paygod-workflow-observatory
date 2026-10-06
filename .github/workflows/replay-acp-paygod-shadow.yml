@@ -46,13 +46,31 @@ jobs:
           run-id: ${{ inputs.source_run_id }}
           github-token: ${{ github.token }}
 
-      - name: Build locally validated Request Candidate
+      - name: Freeze submitted Request Identity
         env:
           REQUEST_JSON: ${{ inputs.request_json }}
           OFFERING_NAME: ${{ inputs.offering_name }}
         run: |
           mkdir -p out/replay
-          node scripts/build-shadow-request.mjs             --normalized out/source/observation-pack/normalized.json             --manifest out/source/observation-pack/manifest.json             --offering "$OFFERING_NAME"             --output out/replay/request-shadow.json
+          node scripts/freeze-request-identity.mjs \
+            --raw out/source/observation-pack/raw.json \
+            --normalized out/source/observation-pack/normalized.json \
+            --manifest out/source/observation-pack/manifest.json \
+            --offering "$OFFERING_NAME" \
+            --output out/replay/request-identity.json
+
+      - name: Build locally validated Request Candidate
+        env:
+          REQUEST_JSON: ${{ inputs.request_json }}
+          OFFERING_NAME: ${{ inputs.offering_name }}
+        run: |
+          node scripts/build-shadow-request.mjs \
+            --raw out/source/observation-pack/raw.json \
+            --normalized out/source/observation-pack/normalized.json \
+            --manifest out/source/observation-pack/manifest.json \
+            --request-identity out/replay/request-identity.json \
+            --offering "$OFFERING_NAME" \
+            --output out/replay/request-shadow.json
 
       - name: Assert candidate is locally validated
         run: |
@@ -121,6 +139,11 @@ jobs:
             requestStatus: request.request.status,
             schemaValidation: request.request.schemaValidation,
             requestPayloadCanonicalSha256: request.request.requestPayloadCanonicalSha256,
+            submittedRequestIdentitySha256: request.request.submittedRequestIdentitySha256,
+            admittedRequestIdentitySha256: request.request.admittedRequestIdentitySha256,
+            decisionReasonCode: request.request.decisionReasonCode,
+            externalManifestAnchor: request.source.packVerification.externalAnchorStatus,
+            observationAuthenticity: request.source.packVerification.observationAuthenticity,
             descriptorCanonicalSha256: request.workflow.selectedDescriptorRef?.descriptorCanonicalSha256 ?? null,
             requirementsCanonicalSha256: request.workflow.selectedDescriptorRef?.requirementsCanonicalSha256 ?? null,
             paygodVerdict: receipt.verdict.value,
