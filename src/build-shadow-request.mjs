@@ -1,4 +1,5 @@
 import { PROVENANCE, provenance } from "./provenance.mjs";
+import { sha256CanonicalJson } from "./digest.mjs";
 
 function offeringDescriptors(descriptorSet) {
   return Array.isArray(descriptorSet?.descriptors)
@@ -16,12 +17,29 @@ export function buildShadowRequest({
   const selected =
     offerings.find((item) => item?.capability?.name === offeringName) ?? null;
   const payloadPresent = requestPayload !== null;
+  const requirements = selected?.requestContract?.requirements ?? null;
 
   const requestStatus = !selected
     ? "WITHHELD_NO_DESCRIPTOR"
     : !payloadPresent
       ? "WITHHELD_NO_PAYLOAD"
       : "CANDIDATE_UNVALIDATED";
+
+  const selectedDescriptorRef = selected
+    ? {
+        descriptorType: selected.descriptorType ?? null,
+        agentId: selected.identity?.agentId ?? null,
+        capabilityId: selected.capability?.id ?? null,
+        capabilityName: selected.capability?.name ?? null,
+        descriptorCanonicalSha256: sha256CanonicalJson(selected),
+        requirementsCanonicalSha256:
+          requirements === null ? null : sha256CanonicalJson(requirements),
+      }
+    : null;
+
+  const requestPayloadCanonicalSha256 = payloadPresent
+    ? sha256CanonicalJson(requestPayload)
+    : null;
 
   return {
     kind: "acp-request-shadow",
@@ -42,11 +60,11 @@ export function buildShadowRequest({
     workflow: {
       descriptorPresent: Boolean(selected),
       requestedOfferingName: offeringName,
-      selectedDescriptor: selected,
+      selectedDescriptorRef,
       provenance: selected
         ? provenance(
             PROVENANCE.LOCAL_DERIVED,
-            "selected by exact offering name from normalized descriptor set"
+            "selected by exact offering name and bound by canonical digest"
           )
         : provenance(
             PROVENANCE.UNKNOWN,
@@ -56,15 +74,21 @@ export function buildShadowRequest({
     request: {
       status: requestStatus,
       payloadPresent,
-      payload: requestPayload,
-      requirementsSchema: selected?.requestContract?.requirements ?? null,
+      requestPayloadCanonicalSha256,
+      requirementsSchemaObserved: requirements !== null,
       schemaValidation: "NOT_RUN",
       provenance: payloadPresent
         ? provenance(
             PROVENANCE.LOCAL_DERIVED,
-            "candidate payload supplied to internal shadow harness"
+            "candidate payload bound by canonical digest; raw payload remains outside PayGod input"
           )
         : provenance(PROVENANCE.UNKNOWN, "no request payload supplied"),
+    },
+    evidenceAdmission: {
+      rawDescriptorAdmittedToPayGod: false,
+      rawRequestPayloadAdmittedToPayGod: false,
+      reason:
+        "External ACP descriptor/request payload remain in the Observation Pack; PayGod receives digest-bound admission metadata only.",
     },
     authority: {
       acpJobCreationAuthorized: false,
