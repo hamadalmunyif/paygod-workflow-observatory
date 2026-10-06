@@ -39,10 +39,11 @@ function frozenIdentity(set, name, payload) {
 }
 
 test("projection refuses unverified observation packs", async () => {
+  const set = await descriptorSet();
   assert.throws(
     () =>
       buildShadowRequest({
-        descriptorSet: await descriptorSet(),
+        descriptorSet: set,
         observationManifest: manifest,
         packVerification: null,
         offeringName: "Company Risk Analysis",
