@@ -1,0 +1,141 @@
+name: replay-acp-paygod-shadow
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Completed live ACP witness run ID"
+        required: true
+        default: "37474713196"
+        type: string
+      offering_name:
+        description: "Exact offering name observed in the source witness"
+        required: true
+        default: "getCongressTrades"
+        type: string
+      request_json:
+        description: "Internal request candidate JSON. This is NOT submitted to ACP."
+        required: true
+        default: '{"limit":5}'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay-shadow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout observatory
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate observatory invariants
+        run: npm test
+
+      - name: Download source live witness
+        uses: actions/download-artifact@v4
+        with:
+          name: acp-paygod-shadow-${{ inputs.source_run_id }}
+          path: out/source
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Build locally validated Request Candidate
+        env:
+          REQUEST_JSON: ${{ inputs.request_json }}
+          OFFERING_NAME: ${{ inputs.offering_name }}
+        run: |
+          mkdir -p out/replay
+          node scripts/build-shadow-request.mjs             --normalized out/source/observation-pack/normalized.json             --manifest out/source/observation-pack/manifest.json             --offering "$OFFERING_NAME"             --output out/replay/request-shadow.json
+
+      - name: Assert candidate is locally validated
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const request = JSON.parse(fs.readFileSync('out/replay/request-shadow.json','utf8'));
+          if (request.request.schemaValidation !== 'LOCAL_VALIDATED') {
+            throw new Error(`Expected LOCAL_VALIDATED, got ${request.request.schemaValidation}`);
+          }
+          if (request.authority.acpExecutionAuthorized !== false) {
+            throw new Error('ACP execution authority must remain false');
+          }
+          console.log('PASS: candidate is locally schema-valid and remains non-executable.');
+          NODE
+
+      - name: Checkout pinned PayGod kernel
+        uses: actions/checkout@v4
+        with:
+          repository: hamadalmunyif/paygod-kernel-mvp
+          ref: 23ea2cca74ef8b698718c6d0c8dbda447f13bb37
+          path: external/paygod-kernel
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Confirm PayGod repository boundary
+        working-directory: external/paygod-kernel
+        run: python3 tools/check_repository_boundary.py --scan-current
+
+      - name: Publish canonical PayGod CLI
+        run: dotnet publish external/paygod-kernel/src/PayGod.Cli/PayGod.Cli.csproj -c Release -o out/paygod-cli
+
+      - name: Run PayGod request admission shadow
+        env:
+          PAYGOD_CLOCK: "1970-01-01T00:00:00Z"
+          PAYGOD_RUNNER_IMAGE: "paygod/internal-shadow"
+          PAYGOD_RUNNER_DIGEST: "git:23ea2cca74ef8b698718c6d0c8dbda447f13bb37"
+        run: |
+          mkdir -p out/replay/paygod
+          dotnet out/paygod-cli/PayGod.Cli.dll run             --pack packs/acp-request-admission-shadow             --input out/replay/request-shadow.json             --out out/replay/paygod
+
+      - name: Assert shadow admission only
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          OFFERING: ${{ inputs.offering_name }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const request = JSON.parse(fs.readFileSync('out/replay/request-shadow.json','utf8'));
+          const receipt = JSON.parse(fs.readFileSync('out/replay/paygod/receipt.json','utf8'));
+          if (receipt.verdict.value !== 'allow') {
+            throw new Error(`Expected shadow allow, got ${receipt.verdict.value}`);
+          }
+          if (receipt.verdict.rule_name !== 'shadow-admitted') {
+            throw new Error(`Expected shadow-admitted, got ${receipt.verdict.rule_name}`);
+          }
+          if (request.authority.acpExecutionAuthorized !== false) {
+            throw new Error('ACP execution authority changed unexpectedly');
+          }
+          const summary = {
+            witness: 'ACP-PAYGOD-REQUEST-SHADOW-002',
+            sourceRunId: process.env.SOURCE_RUN_ID,
+            offering: process.env.OFFERING,
+            requestStatus: request.request.status,
+            schemaValidation: request.request.schemaValidation,
+            requestPayloadCanonicalSha256: request.request.requestPayloadCanonicalSha256,
+            descriptorCanonicalSha256: request.workflow.selectedDescriptorRef?.descriptorCanonicalSha256 ?? null,
+            requirementsCanonicalSha256: request.workflow.selectedDescriptorRef?.requirementsCanonicalSha256 ?? null,
+            paygodVerdict: receipt.verdict.value,
+            paygodRule: receipt.verdict.rule_name,
+            acpExecutionAuthorized: request.authority.acpExecutionAuthorized,
+            liveAcpJobCreated: false
+          };
+          fs.writeFileSync('out/replay/summary.json', JSON.stringify(summary, null, 2) + '\n');
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Upload replay witness artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: acp-paygod-request-shadow-${{ github.run_id }}
+          path: out/replay
+          retention-days: 7
+          if-no-files-found: error

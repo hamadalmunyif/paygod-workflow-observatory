@@ -42,7 +42,7 @@ test("observed offering without payload becomes withheld request candidate", asy
   assert.equal(result.request.schemaValidation, "NOT_RUN");
 });
 
-test("supplied payload stays unvalidated rather than being silently admitted", async () => {
+test("supplied payload is locally validated without authorizing ACP execution", async () => {
   const result = buildShadowRequest({
     descriptorSet: await descriptorSet(),
     observationManifest: manifest,
@@ -51,9 +51,10 @@ test("supplied payload stays unvalidated rather than being silently admitted", a
   });
 
   assert.equal(result.request.payloadPresent, true);
-  assert.equal(result.request.status, "CANDIDATE_UNVALIDATED");
-  assert.equal(result.request.schemaValidation, "NOT_RUN");
-  assert.equal(result.trust.requestSchemaCorrectness, "NOT_VALIDATED");
+  assert.equal(result.request.status, "CANDIDATE_LOCAL_VALIDATED");
+  assert.equal(result.request.schemaValidation, "LOCAL_VALIDATED");
+  assert.equal(result.request.validationErrorCount, 0);
+  assert.equal(result.trust.requestSchemaCorrectness, "LOCAL_VALIDATED_NOT_ACP_ACCEPTANCE");
   assert.equal(result.authority.acpJobCreationAuthorized, false);
 });
 
@@ -116,4 +117,86 @@ test("raw request payload is not embedded in PayGod shadow input", async () => {
   assert.match(result.request.requestPayloadCanonicalSha256, /^[a-f0-9]{64}$/);
   assert.equal(result.evidenceAdmission.rawRequestPayloadAdmittedToPayGod, false);
   assert.equal(JSON.stringify(result).includes("0.125"), false);
+});
+
+
+test("live-shaped congressional request limit 5 is locally valid", () => {
+  const descriptorSet = normalizeBrowse({
+    data: [{
+      id: "quiver-agent",
+      name: "Quiver",
+      walletAddress: "0xabc",
+      chains: [{ chainId: 8453 }],
+      offerings: [{
+        id: "congress-offering",
+        name: "getCongressTrades",
+        requirements: {
+          type: "object",
+          properties: {
+            limit: { type: "number", default: 100, maximum: 1000 },
+            ticker: { type: "string" }
+          }
+        },
+        deliverable: { type: "object" },
+        slaMinutes: 5,
+        priceType: "fixed",
+        priceValue: 0.01,
+        requiredFunds: false
+      }],
+      resources: []
+    }]
+  }, { query: "congress" });
+
+  const result = buildShadowRequest({
+    descriptorSet,
+    observationManifest: manifest,
+    offeringName: "getCongressTrades",
+    requestPayload: { limit: 5 },
+  });
+
+  assert.equal(result.request.status, "CANDIDATE_LOCAL_VALIDATED");
+  assert.equal(result.request.schemaValidation, "LOCAL_VALIDATED");
+  assert.equal(result.request.validationErrorCount, 0);
+  assert.equal(result.authority.acpExecutionAuthorized, false);
+  assert.equal(JSON.stringify(result).includes('"limit":5'), false);
+});
+
+test("congressional request above observed maximum is withheld", () => {
+  const descriptorSet = normalizeBrowse({
+    data: [{
+      id: "quiver-agent",
+      name: "Quiver",
+      walletAddress: "0xabc",
+      chains: [{ chainId: 8453 }],
+      offerings: [{
+        id: "congress-offering",
+        name: "getCongressTrades",
+        requirements: {
+          type: "object",
+          properties: {
+            limit: { type: "number", maximum: 1000 },
+            ticker: { type: "string" }
+          }
+        },
+        deliverable: { type: "object" },
+        slaMinutes: 5,
+        priceType: "fixed",
+        priceValue: 0.01,
+        requiredFunds: false
+      }],
+      resources: []
+    }]
+  }, { query: "congress" });
+
+  const result = buildShadowRequest({
+    descriptorSet,
+    observationManifest: manifest,
+    offeringName: "getCongressTrades",
+    requestPayload: { limit: 1001 },
+  });
+
+  assert.equal(result.request.status, "WITHHELD_SCHEMA_INVALID");
+  assert.equal(result.request.schemaValidation, "LOCAL_REJECTED");
+  assert.equal(result.request.validationErrorCount, 1);
+  assert.equal(result.authority.acpJobCreationAuthorized, false);
 });
