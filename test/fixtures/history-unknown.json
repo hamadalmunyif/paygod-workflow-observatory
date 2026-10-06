@@ -1,0 +1,8 @@
+{
+  "jobId": "99",
+  "chainId": 8453,
+  "protocol": "v2",
+  "entries": [
+    {"kind":"message","contentType":"note","content":"hello"}
+  ]
+}

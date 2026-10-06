@@ -1,0 +1,14 @@
+{
+  "name": "paygod-workflow-observatory",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "discover": "node bin/workflow-observatory.mjs discover",
+    "inspect": "node bin/workflow-observatory.mjs inspect"
+  }
+}

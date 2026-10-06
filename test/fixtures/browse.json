@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": "agent-1",
+      "name": "Researcher",
+      "walletAddress": "0xabc",
+      "chains": [{"chainId":8453}],
+      "offerings": [
+        {
+          "id": "off-1",
+          "name": "Company Risk Analysis",
+          "description": "Analyze a company",
+          "requirements": {"type":"object","required":["company"]},
+          "deliverable": {"type":"object","required":["risk"]},
+          "slaMinutes": 30,
+          "priceType": "FIXED",
+          "priceValue": "0.50",
+          "requiredFunds": false
+        }
+      ],
+      "resources": [
+        {
+          "id": "res-1",
+          "name": "Public Dataset",
+          "description": "Lookup",
+          "params": {"type":"object"},
+          "url": "https://example.invalid/resource"
+        }
+      ]
+    }
+  ]
+}

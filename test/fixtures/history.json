@@ -1,0 +1,12 @@
+{
+  "jobId": "42",
+  "chainId": 8453,
+  "protocol": "v2",
+  "entries": [
+    {"kind":"system","event":{"type":"job.created"}},
+    {"kind":"message","contentType":"requirement","content":"{\"company\":\"ABC\"}"},
+    {"kind":"system","event":{"type":"budget.set"}},
+    {"kind":"system","event":{"type":"job.funded"}},
+    {"kind":"system","event":{"type":"job.submitted"}}
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:internal:workflow-observatory:observation-pack:v0",
+  "title": "Workflow Observatory Observation Pack v0",
+  "type": "object",
+  "required": ["schema", "mode", "source", "normalized", "bindings", "trust"],
+  "properties": {
+    "schema": { "const": "workflow-observatory/observation-pack/v0" },
+    "mode": { "enum": ["discover", "inspect"] },
+    "source": {
+      "type": "object",
+      "required": ["system", "baseline", "file", "byteLength", "sha256", "provenance"],
+      "properties": {
+        "system": { "const": "acp-cli" },
+        "baseline": { "type": "object" },
+        "file": { "const": "raw.json" },
+        "byteLength": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "provenance": { "const": "RAW_REMOTE" }
+      },
+      "additionalProperties": false
+    },
+    "normalized": {
+      "type": "object",
+      "required": ["file", "canonicalSha256", "provenance"],
+      "properties": {
+        "file": { "const": "normalized.json" },
+        "canonicalSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "provenance": { "const": "LOCAL_DERIVED" }
+      },
+      "additionalProperties": false
+    },
+    "bindings": { "type": "object" },
+    "trust": {
+      "type": "object",
+      "required": ["integrityWithinPack", "sourceAuthenticity", "sourceTruth", "independentTimeAuthority", "decisionCorrectness"]
+    }
+  },
+  "additionalProperties": false
+}

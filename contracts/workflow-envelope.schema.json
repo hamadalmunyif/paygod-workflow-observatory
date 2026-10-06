@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:internal:workflow-observatory:v0",
+  "title": "Workflow Observatory Envelope v0",
+  "oneOf": [
+    { "$ref": "#/$defs/descriptorSet" },
+    { "$ref": "#/$defs/instance" }
+  ],
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["classification", "source"],
+      "properties": {
+        "classification": {
+          "enum": ["RAW_REMOTE", "SDK_DERIVED", "LOCAL_DERIVED", "UNKNOWN"]
+        },
+        "source": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "descriptorSet": {
+      "type": "object",
+      "required": ["kind", "descriptors", "provenance"],
+      "properties": {
+        "kind": { "const": "workflow-descriptor-set" },
+        "query": { "type": ["string", "null"] },
+        "descriptorCount": { "type": "integer", "minimum": 0 },
+        "descriptors": { "type": "array", "items": { "type": "object" } },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "sourceObservation": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "instance": {
+      "type": "object",
+      "required": ["kind", "identity", "request", "context", "history", "outcome"],
+      "properties": {
+        "kind": { "const": "workflow-instance" },
+        "identity": { "type": "object" },
+        "request": { "type": "object" },
+        "context": { "type": "object" },
+        "decision": { "type": "object" },
+        "history": { "type": "object" },
+        "outcome": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
