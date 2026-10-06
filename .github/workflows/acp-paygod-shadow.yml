@@ -1,0 +1,152 @@
+name: acp-paygod-shadow
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "ACP marketplace browse query"
+        required: true
+        default: "congress"
+        type: string
+      offering_name:
+        description: "Exact offering name to select from observed descriptors"
+        required: true
+        default: "getCongressTrades"
+        type: string
+      request_json:
+        description: "Optional internal request candidate JSON. Leave blank for first witness."
+        required: false
+        default: ""
+        type: string
+      top_k:
+        description: "Maximum ACP browse results"
+        required: true
+        default: "10"
+        type: string
+      auth_timeout_seconds:
+        description: "Seconds to wait for human Virtuals authorization"
+        required: true
+        default: "600"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  observe-and-shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout observatory
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned acp-cli
+        uses: actions/checkout@v4
+        with:
+          repository: hamadalmunyif/acp-cli
+          ref: 9d2be827cc19e4ea2cecfff3896398607537ea3e
+          path: external/acp-cli
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pinned acp-cli dependencies
+        working-directory: external/acp-cli
+        run: npm install --ignore-scripts
+
+      - name: Validate observatory invariants
+        run: npm test
+
+      - name: Authenticate and capture signerless ACP browse
+        working-directory: external/acp-cli
+        env:
+          ACP_CLI_DIR: ${{ github.workspace }}/external/acp-cli
+          ACP_QUERY: ${{ inputs.query }}
+          ACP_TOP_K: ${{ inputs.top_k }}
+          ACP_AUTH_TIMEOUT_SECONDS: ${{ inputs.auth_timeout_seconds }}
+          ACP_CAPTURE_FILE: ${{ github.workspace }}/out/witness/raw-browse.json
+        run: npx tsx ../../scripts/acp-live-witness.ts
+
+      - name: Build Observation Pack
+        env:
+          QUERY: ${{ inputs.query }}
+        run: |
+          node bin/workflow-observatory.mjs discover             --input out/witness/raw-browse.json             --query "$QUERY"             --output-dir out/witness/observation-pack
+
+      - name: Build internal Request Candidate
+        env:
+          REQUEST_JSON: ${{ inputs.request_json }}
+          OFFERING_NAME: ${{ inputs.offering_name }}
+        run: |
+          node scripts/build-shadow-request.mjs             --normalized out/witness/observation-pack/normalized.json             --manifest out/witness/observation-pack/manifest.json             --offering "$OFFERING_NAME"             --output out/witness/request-shadow.json
+
+      - name: Checkout pinned PayGod kernel
+        uses: actions/checkout@v4
+        with:
+          repository: hamadalmunyif/paygod-kernel-mvp
+          ref: 23ea2cca74ef8b698718c6d0c8dbda447f13bb37
+          path: external/paygod-kernel
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Confirm PayGod repository boundary
+        working-directory: external/paygod-kernel
+        run: python3 tools/check_repository_boundary.py --scan-current
+
+      - name: Test pinned PayGod kernel
+        run: dotnet test external/paygod-kernel/src/PayGod.sln -c Release
+
+      - name: Publish canonical PayGod CLI
+        run: dotnet publish external/paygod-kernel/src/PayGod.Cli/PayGod.Cli.csproj -c Release -o out/paygod-cli
+
+      - name: Run PayGod shadow admission
+        env:
+          PAYGOD_CLOCK: "1970-01-01T00:00:00Z"
+          PAYGOD_RUNNER_IMAGE: "paygod/internal-shadow"
+          PAYGOD_RUNNER_DIGEST: "git:23ea2cca74ef8b698718c6d0c8dbda447f13bb37"
+        run: |
+          mkdir -p out/witness/paygod
+          dotnet out/paygod-cli/PayGod.Cli.dll run             --pack packs/acp-request-admission-shadow             --input out/witness/request-shadow.json             --out out/witness/paygod
+
+      - name: Record witness summary
+        env:
+          QUERY: ${{ inputs.query }}
+          OFFERING: ${{ inputs.offering_name }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('out/witness/observation-pack/manifest.json','utf8'));
+          const normalized = JSON.parse(fs.readFileSync('out/witness/observation-pack/normalized.json','utf8'));
+          const request = JSON.parse(fs.readFileSync('out/witness/request-shadow.json','utf8'));
+          const receipt = JSON.parse(fs.readFileSync('out/witness/paygod/receipt.json','utf8'));
+          const summary = {
+            witness: 'ACP-PAYGOD-SHADOW-001',
+            query: process.env.QUERY,
+            requestedOfferingName: process.env.OFFERING,
+            descriptorCount: normalized.descriptorCount,
+            descriptorPresent: request.workflow.descriptorPresent,
+            requestStatus: request.request.status,
+            observationRawSha256: manifest.source.sha256,
+            observationNormalizedSha256: manifest.normalized.canonicalSha256,
+            paygodVerdict: receipt.verdict.value,
+            paygodRule: receipt.verdict.rule_name,
+            paygodKernelCommit: '23ea2cca74ef8b698718c6d0c8dbda447f13bb37',
+            acpCliCommit: '9d2be827cc19e4ea2cecfff3896398607537ea3e',
+            acpExecutionAuthorized: false
+          };
+          fs.writeFileSync('out/witness/summary.json', JSON.stringify(summary, null, 2) + '\n');
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Upload private witness artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: acp-paygod-shadow-${{ github.run_id }}
+          path: out/witness
+          retention-days: 7
+          if-no-files-found: error
