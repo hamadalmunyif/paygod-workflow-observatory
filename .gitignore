@@ -1,3 +1,7 @@
 node_modules/
 out/
 .DS_Store
+captures/
+*.capture.json
+.env
+.env.*
