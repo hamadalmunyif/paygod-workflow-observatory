@@ -66,3 +66,35 @@ This witness does not prove:
 - live ACP job execution;
 - economic value;
 - PayGod authority over ACP.
+
+
+## Closure run
+
+Corrected live run: `37474713196`  
+Result: **PASS — SHADOW OBSERVATION CLOSED**
+
+The corrected run completed the full chain:
+
+- authenticated signerless ACP browse;
+- 10 live ACP search results;
+- Observation Pack creation;
+- exact `getCongressTrades` descriptor observed;
+- request status `WITHHELD_NO_PAYLOAD`;
+- PayGod canonical input accepted;
+- PayGod verdict `flag`;
+- PayGod rule `payload-missing`;
+- Receipt, Manifest, Ledger, Plan, and Findings emitted;
+- private short-lived witness artifact uploaded.
+
+Bindings from the closure run:
+
+- raw observation SHA-256: `f7d0fe668caebb5a5a4b5fac7a0ed7a5a390fb1c84c516daa3524587c9f21ee7`
+- normalized observation SHA-256: `93ced4ffb2cc9d37f02fb4791fa37c3e57aa4d9ac4a63e1a02d8434d9e4dc284`
+- selected descriptor SHA-256: `75c468559f5ce0ed172493ecf641c6129519db57fd86e20a94653cab2762cc2c`
+- observed requirements SHA-256: `8aff642e60abfb9295fa9d2f2aa9875d2c7ab3cfe33e9ae561a07f09886aaf67`
+- PayGod input canonical hash: `8c1645894194b7886a211b903f43b2db85a50cb739de11e1d8f657099568e982`
+- PayGod bundle digest: `3f7cd448fd7ebe82f6f6d77aafa312b02b3a576bacdc6a5f5c2ae4c9a805448c`
+
+The live observed request contract for `getCongressTrades` permits an optional `ticker` string and an optional numeric `limit` with maximum `1000`; empty parameters are also described as valid for the latest unfiltered tape.
+
+Witness 001 therefore establishes that a real ACP capability descriptor can be observed, evidence-bound, admitted into the existing PayGod boundary, and converted into canonical PayGod artifacts without changing the kernel and without creating an ACP Job.
