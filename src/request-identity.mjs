@@ -77,15 +77,6 @@ export function assertSubmittedRequestIdentity({
     );
   }
   if (
-    recomputed.commitment.descriptorCanonicalSha256 !==
-    frozen.descriptorCanonicalSha256
-  ) {
-    fail(
-      "REQUEST_DESCRIPTOR_DIGEST_MISMATCH",
-      "Current descriptor differs from the frozen submitted request"
-    );
-  }
-  if (
     recomputed.commitment.requirementsCanonicalSha256 !==
     frozen.requirementsCanonicalSha256
   ) {
@@ -101,6 +92,15 @@ export function assertSubmittedRequestIdentity({
     fail(
       "REQUEST_PAYLOAD_DIGEST_MISMATCH",
       "Current request payload differs from the frozen submitted request"
+    );
+  }
+  if (
+    recomputed.commitment.descriptorCanonicalSha256 !==
+    frozen.descriptorCanonicalSha256
+  ) {
+    fail(
+      "REQUEST_DESCRIPTOR_DIGEST_MISMATCH",
+      "Current descriptor differs from the frozen submitted request"
     );
   }
   if (
