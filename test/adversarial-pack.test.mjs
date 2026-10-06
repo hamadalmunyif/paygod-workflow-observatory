@@ -46,7 +46,7 @@ test("baseline observation pack verifies but remains externally unanchored", asy
 test("normalized mutation with stale manifest fails with exact digest code", async () => {
   const pack = await baselinePack();
   const mutated = structuredClone(pack.normalized);
-  mutated.query = "tampered";
+  mutated.descriptors[0].capability.name = "tampered";
   expectCode(
     () =>
       verifyObservationPack({
@@ -60,7 +60,7 @@ test("normalized mutation with stale manifest fails with exact digest code", asy
 test("normalized plus recomputed manifest cannot hide divergence from unchanged raw", async () => {
   const pack = await baselinePack();
   const mutated = structuredClone(pack.normalized);
-  mutated.query = "tampered";
+  mutated.descriptors[0].capability.name = "tampered";
   const recomputedManifest = buildObservationManifest({
     mode: "discover",
     rawBytes: pack.rawBytes,
