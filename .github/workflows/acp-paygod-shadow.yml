@@ -75,12 +75,35 @@ jobs:
         run: |
           node bin/workflow-observatory.mjs discover             --input out/witness/raw-browse.json             --query "$QUERY"             --output-dir out/witness/observation-pack
 
+      - name: Freeze Request Identity when payload is supplied
+        if: ${{ inputs.request_json != '' }}
+        env:
+          REQUEST_JSON: ${{ inputs.request_json }}
+          OFFERING_NAME: ${{ inputs.offering_name }}
+        run: |
+          node scripts/freeze-request-identity.mjs \
+            --raw out/witness/observation-pack/raw.json \
+            --normalized out/witness/observation-pack/normalized.json \
+            --manifest out/witness/observation-pack/manifest.json \
+            --offering "$OFFERING_NAME" \
+            --output out/witness/request-identity.json
+
       - name: Build internal Request Candidate
         env:
           REQUEST_JSON: ${{ inputs.request_json }}
           OFFERING_NAME: ${{ inputs.offering_name }}
         run: |
-          node scripts/build-shadow-request.mjs             --normalized out/witness/observation-pack/normalized.json             --manifest out/witness/observation-pack/manifest.json             --offering "$OFFERING_NAME"             --output out/witness/request-shadow.json
+          IDENTITY_ARG=""
+          if [ -f out/witness/request-identity.json ]; then
+            IDENTITY_ARG="--request-identity out/witness/request-identity.json"
+          fi
+          node scripts/build-shadow-request.mjs \
+            --raw out/witness/observation-pack/raw.json \
+            --normalized out/witness/observation-pack/normalized.json \
+            --manifest out/witness/observation-pack/manifest.json \
+            $IDENTITY_ARG \
+            --offering "$OFFERING_NAME" \
+            --output out/witness/request-shadow.json
 
       - name: Checkout pinned PayGod kernel
         uses: actions/checkout@v4
