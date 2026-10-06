@@ -56,3 +56,64 @@ test("supplied payload stays unvalidated rather than being silently admitted", a
   assert.equal(result.trust.requestSchemaCorrectness, "NOT_VALIDATED");
   assert.equal(result.authority.acpJobCreationAuthorized, false);
 });
+
+
+test("PayGod shadow envelope excludes raw descriptor floats and binds them by digest", async () => {
+  const payload = {
+    data: [
+      {
+        id: "agent-float",
+        name: "Quiver-like",
+        walletAddress: "0xabc",
+        chains: [{ chainId: 8453 }],
+        offerings: [
+          {
+            id: "off-float",
+            name: "getCongressTrades",
+            description: "example",
+            requirements: {
+              type: "object",
+              properties: {
+                limit: { type: "integer", minimum: 1 }
+              }
+            },
+            deliverable: { type: "object" },
+            slaMinutes: 5,
+            priceType: "FIXED",
+            priceValue: 0.01,
+            requiredFunds: false
+          }
+        ],
+        resources: []
+      }
+    ]
+  };
+
+  const result = buildShadowRequest({
+    descriptorSet: normalizeBrowse(payload, { query: "congress" }),
+    observationManifest: manifest,
+    offeringName: "getCongressTrades",
+  });
+
+  const serialized = JSON.stringify(result);
+  assert.equal(result.workflow.descriptorPresent, true);
+  assert.equal("selectedDescriptor" in result.workflow, false);
+  assert.equal(result.workflow.selectedDescriptorRef.capabilityName, "getCongressTrades");
+  assert.match(result.workflow.selectedDescriptorRef.descriptorCanonicalSha256, /^[a-f0-9]{64}$/);
+  assert.equal(result.evidenceAdmission.rawDescriptorAdmittedToPayGod, false);
+  assert.equal(serialized.includes('"priceValue":0.01'), false);
+});
+
+test("raw request payload is not embedded in PayGod shadow input", async () => {
+  const result = buildShadowRequest({
+    descriptorSet: await descriptorSet(),
+    observationManifest: manifest,
+    offeringName: "Company Risk Analysis",
+    requestPayload: { confidence: 0.125, company: "ABC" },
+  });
+
+  assert.equal("payload" in result.request, false);
+  assert.match(result.request.requestPayloadCanonicalSha256, /^[a-f0-9]{64}$/);
+  assert.equal(result.evidenceAdmission.rawRequestPayloadAdmittedToPayGod, false);
+  assert.equal(JSON.stringify(result).includes("0.125"), false);
+});
