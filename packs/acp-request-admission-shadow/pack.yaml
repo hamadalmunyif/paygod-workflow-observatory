@@ -1,0 +1,31 @@
+api_version: "paygod/v1"
+kind: Pack
+metadata:
+  name: "acp-request-admission-shadow"
+  version: "0.1.0"
+  description: "Internal shadow-only admission probe for an ACP request candidate. It never authorizes ACP execution."
+  maintainer: "internal"
+  tags: ["acp", "shadow", "request", "admission"]
+
+spec:
+  policy:
+    rules:
+      - name: "descriptor-missing"
+        condition: "input.workflow.descriptorPresent == false"
+        decision: "deny"
+        reason: "Requested ACP offering was not observed in the captured descriptor set."
+
+      - name: "payload-missing"
+        condition: "input.request.payloadPresent == false"
+        decision: "flag"
+        reason: "Workflow descriptor exists, but no request payload has been admitted."
+
+      - name: "schema-not-validated"
+        condition: "input.request.schemaValidation != 'VALIDATED'"
+        decision: "flag"
+        reason: "Request payload exists but has not been validated against the observed requirement schema."
+
+      - name: "shadow-admitted"
+        condition: "input.request.schemaValidation == 'VALIDATED'"
+        decision: "allow"
+        reason: "Request candidate passed the shadow admission state. ACP execution remains unauthorized."
