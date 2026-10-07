@@ -102,6 +102,10 @@ export class AuthorityStateStoreV0 {
     this.db.close();
   }
 
+  currentTimeMs() {
+    return requireTime(this.now(), "S0_NOW_INVALID", "harness time");
+  }
+
   _transaction(fn) {
     this.db.exec("BEGIN IMMEDIATE");
     try {
