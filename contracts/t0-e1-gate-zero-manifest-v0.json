@@ -1,0 +1,136 @@
+{
+  "schema": "workflow-observatory/t0-e1-gate-zero-manifest/v0",
+  "status": "FROZEN_BEFORE_MISSING_TEST_IMPLEMENTATION",
+  "threat_model": "T0",
+  "enforcement_surface": "E1",
+  "claim_ceiling": "No bypass was observed under Threat Model T0 across the declared E1 transaction enforcement surface of the local closed harness.",
+  "forbidden_promotions": [
+    "globally non-bypassable",
+    "independent production enforcement boundary",
+    "Conditional Release Authority",
+    "E2/provider exclusivity",
+    "public-chain authority",
+    "economic fee authority"
+  ],
+  "attacks": [
+    {
+      "id": "A0/A17",
+      "attempt": "Create the protected contract consequence without E1 through the client-visible raw transaction path.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "live_container"
+    },
+    {
+      "id": "A1/A53",
+      "attempt": "Obtain or use protected-account signing through node-managed or other client-visible signing RPC.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "live_container"
+    },
+    {
+      "id": "A2/A54",
+      "attempt": "Use an independently controlled alternate signer with the exact target/calldata/value.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "live_container"
+    },
+    {
+      "id": "A51",
+      "attempt": "Invoke privileged/dev-node RPC methods through R-client.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "live_container_audit"
+    },
+    {
+      "id": "A52",
+      "attempt": "Reach raw R-admin directly from adversarial client C.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "live_container"
+    },
+    {
+      "id": "A55",
+      "attempt": "Inject caller-controlled nonce/gas/fee/raw-tx/signature metadata into protected E1 request.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "runtime_test"
+    },
+    {
+      "id": "T0-KEY-REACH",
+      "attempt": "Read or discover the protected execution private-key file/value from C using the declared container boundary.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "live_container"
+    },
+    {
+      "id": "T0-S0-REACH",
+      "attempt": "Read or mutate the authority-state SQLite database from C using the declared container boundary.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "live_container"
+    },
+    {
+      "id": "A9",
+      "attempt": "Use a valid Warrant/Transition Envelope with different payload bytes at E2.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "runtime_test_and_witness_probe"
+    },
+    {
+      "id": "A13",
+      "attempt": "Reuse the same consumed authority after transaction reservation.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "runtime_test"
+    },
+    {
+      "id": "A14",
+      "attempt": "Race two transaction reservations against the same PAYLOAD_STAGED issuer_key_id+nonce.",
+      "expected": "AT_MOST_ONE_SUCCEEDS",
+      "evidence": "concurrent_runtime_test"
+    },
+    {
+      "id": "A15",
+      "attempt": "Restart S0 after consumption and replay the same authority.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "runtime_test_and_witness_probe"
+    },
+    {
+      "id": "A16",
+      "attempt": "Use any Agent-accessible reset/rollback path declared inside T0.",
+      "expected": "REJECTED_AS_EXPECTED_OR_NO_AGENT_ACCESSIBLE_PATH",
+      "evidence": "live_container_boundary"
+    },
+    {
+      "id": "A21",
+      "attempt": "Disable or replace E1/R-client using a mechanism available to C.",
+      "expected": "REJECTED_AS_EXPECTED_OR_NO_AGENT_ACCESSIBLE_PATH",
+      "evidence": "live_container_boundary"
+    },
+    {
+      "id": "A22/A49/A56",
+      "attempt": "Replace or extend trusted decision/Warrant issuer configuration from C or per request.",
+      "expected": "REJECTED_AS_EXPECTED_OR_NO_AGENT_ACCESSIBLE_PATH",
+      "evidence": "trust_boundary_tests"
+    },
+    {
+      "id": "A23",
+      "attempt": "Change the committed Transition Envelope while reusing the Warrant.",
+      "expected": "REJECTED_AS_EXPECTED",
+      "evidence": "runtime_test"
+    }
+  ],
+  "explicitly_outside_this_e1_witness": [
+    {
+      "id": "A18-A20",
+      "reason": "Require E2 release/provider acceptance surface."
+    },
+    {
+      "id": "A26-A28",
+      "reason": "Require provider/job correlation after E2 release."
+    },
+    {
+      "id": "A41",
+      "reason": "Payload release runtime is not implemented yet."
+    },
+    {
+      "id": "A25",
+      "reason": "Compromised trusted issuer is a trust-root failure, not a T0 bypass guarantee."
+    },
+    {
+      "id": "T1",
+      "reason": "Host/operator compromise, privileged filesystem rollback, and backup restoration remain deferred until after AP2 Pass B."
+    }
+  ],
+  "failure_rule": "Any observed C-accessible protected-key use, S0 reset/mutation, or same protected consequence outside the authorized E1 path downgrades the tested architecture to Advisor / Evidence Authority."
+}
