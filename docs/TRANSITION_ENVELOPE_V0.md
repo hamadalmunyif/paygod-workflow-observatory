@@ -44,19 +44,21 @@ The transaction object binds:
 
 - `system` — e.g. `evm`
 - `chain_id`
+- `execution_account`
 - `target`
 - `calldata_sha256`
 - `native_value`
 
 The digest covers the exact calldata bytes that would be submitted.
 
-Any change in target, chain, calldata, or native value is a different transition.
+Any change in execution account, target, chain, calldata, or native value is a different transaction surface.
 
 ### payload
 
 The payload object binds:
 
 - `channel` — for the ACP experiment, `acp-requirement-message`
+- `recipient` — controlled provider identity expected to receive the authoritative payload
 - `content_type` — expected `requirement`
 - `payload_sha256`
 
@@ -73,12 +75,14 @@ No parser-derived semantic equivalence upgrades a mismatching byte representatio
   "transaction": {
     "system": "evm",
     "chain_id": 8453,
+    "execution_account": "0x...",
     "target": "0x...",
     "calldata_sha256": "<sha256>",
     "native_value": "0"
   },
   "payload": {
     "channel": "acp-requirement-message",
+    "recipient": "controlled-provider-v0",
     "content_type": "requirement",
     "payload_sha256": "<sha256>"
   }
@@ -121,6 +125,7 @@ E1 verifies:
 - transition commitment;
 - exact envelope bytes;
 - chain id;
+- execution account;
 - target;
 - exact calldata digest;
 - native value;
@@ -134,6 +139,7 @@ E2 verifies:
 
 - warrant validity or a derived authorization bound to the same transition commitment;
 - exact envelope bytes;
+- expected recipient/provider identity;
 - exact payload digest;
 - expected content type;
 - remote job/transition context required by the controlled provider;
@@ -205,3 +211,13 @@ It does not prove:
 - that all external channels are covered.
 
 Those remain separate trust dimensions.
+
+## 13. Why execution account and payload recipient are committed
+
+A transaction is not fully identified by target/calldata/value alone. The account whose authority is being exercised is execution-relevant.
+
+Likewise, the same requirement bytes delivered to a different provider are not the same protected payload transition.
+
+Therefore v0 treats both `execution_account` and `payload.recipient` as commitment-bearing fields.
+
+This does not make alternate-account attacks irrelevant. If another account can create the same protected business consequence inside T0, that remains an explicit Gate Zero bypass test even though it is a different byte-level transition.
