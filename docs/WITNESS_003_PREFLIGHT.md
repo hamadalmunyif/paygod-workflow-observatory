@@ -1,6 +1,6 @@
 # Witness 003 — PRE-FLIGHT consequence model
 
-Status: **ANALYSIS ONLY — AUTHORITY PREFLIGHT CONTRACTS FROZEN**
+Status: **ANALYSIS ONLY — AUTHORITY CONTRACTS + CONTROLLED HARNESS DESIGN FROZEN**
 
 Witness 002b is closed.
 
@@ -359,6 +359,12 @@ The following remain unresolved:
 - Witness 003-PREFLIGHT: **IN PROGRESS — authority contracts frozen**
 - Witness 003-LIVE against Quiver: **REJECTED IN CURRENT FORM**
 - Controlled two-party harness: **NOT YET AUTHORIZED; specification only**
+- Controlled harness architecture v0: **DESIGN FROZEN**
+- Harness implementation: **NOT AUTHORIZED**
+- Issuer implementation: **NOT AUTHORIZED**
+- E1 implementation: **NOT AUTHORIZED**
+- E2 implementation: **NOT AUTHORIZED**
+- S0 implementation: **NOT AUTHORIZED**
 - ACP Agent creation: **NOT AUTHORIZED**
 - Signer creation/registration: **NOT AUTHORIZED**
 - Job creation: **NOT AUTHORIZED**
@@ -370,14 +376,12 @@ The following remain unresolved:
 
 The next work remains non-live:
 
-1. review the four frozen authority-preflight contracts for internal consistency;
-2. define the controlled two-party harness architecture without creating either party;
-3. choose and document two enforcement surfaces:
-   - E1 transaction/calldata enforcement;
-   - E2 requirement-payload enforcement;
-4. choose the single-use nonce-state location and document rollback/reset authority;
-5. choose the issuer-key trust model for the controlled experiment;
-6. design post-flight readback evidence without executing it;
-7. only after those are frozen, decide whether implementation of the controlled harness is authorized.
+1. review the frozen controlled-harness design for internal consistency;
+2. verify that the harness boundary preserves the intended T0 attacker capabilities;
+3. verify that issuance cannot behave as an arbitrary signing oracle;
+4. verify that S0 replay state and restart/rollback assumptions are explicit;
+5. verify that E1/E2 sequencing exposes partial-state outcomes rather than hiding them;
+6. verify that the post-flight evidence bundle can distinguish REJECTED, PARTIAL_TX_ONLY, NONCONFORMANT, BYPASS_OBSERVED, and HARNESS_DEFECT;
+7. only after those reviews, decide whether implementation of the controlled harness is authorized.
 
 No Agent, Signer, Job, funding, signing, transaction submission, or provider interaction is implied by this document.
