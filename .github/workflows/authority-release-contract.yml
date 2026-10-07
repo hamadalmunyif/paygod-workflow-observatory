@@ -301,6 +301,131 @@ jobs:
           console.log(JSON.stringify(summary, null, 2));
           NODE
 
+      - name: Adversarially verify D-to-I authenticity boundary
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/adversarial
+
+          cp -R out/release/paygod out/release/adversarial/unsigned
+          rm -f out/release/adversarial/unsigned/receipt.sig.json
+          if python3 external/paygod-kernel/tools/verify_portable_evidence.py \
+            out/release/adversarial/unsigned \
+            --trusted-issuer-keys out/release/decision-trust-store.json \
+            --require-issuer-authenticity \
+            --result out/release/adversarial/unsigned-result.json; then
+            echo "A44 failed: unsigned receipt was accepted"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          trust = json.loads(Path('out/release/decision-trust-store.json').read_text())
+          trust['keys'] = []
+          Path('out/release/adversarial/untrusted-store.json').write_text(
+              json.dumps(trust, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+          if python3 external/paygod-kernel/tools/verify_portable_evidence.py \
+            out/release/paygod \
+            --trusted-issuer-keys out/release/adversarial/untrusted-store.json \
+            --require-issuer-authenticity \
+            --result out/release/adversarial/untrusted-result.json; then
+            echo "A45 failed: untrusted signer was accepted"
+            exit 1
+          fi
+
+          cp -R out/release/paygod out/release/adversarial/mutated
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('out/release/adversarial/mutated/receipt.json')
+          receipt = json.loads(p.read_text())
+          receipt['verdict']['rule_name'] = 'mutated-after-signing'
+          p.write_text(json.dumps(receipt, separators=(',', ':')), encoding='utf-8')
+          PY
+
+          if python3 external/paygod-kernel/tools/verify_portable_evidence.py \
+            out/release/adversarial/mutated \
+            --trusted-issuer-keys out/release/decision-trust-store.json \
+            --require-issuer-authenticity \
+            --result out/release/adversarial/mutated-result.json; then
+            echo "A46 failed: mutated signed receipt was accepted"
+            exit 1
+          fi
+
+          echo "PASS: A44-A46 rejected by the established PayGod verifier."
+
+      - name: Issue local Warrant through trusted verifier bridge
+        run: |
+          mkdir -p out/release/warrant
+          node scripts/issue-controlled-warrant-from-paygod.mjs \
+            --candidate out/release/release-candidate.json \
+            --request-shadow out/release/request-shadow.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --release-profile contracts/controlled-release-profile-v0.json \
+            --paygod-validate out/release/paygod-validate.json \
+            --paygod-bundle out/release/paygod \
+            --decision-trust-store out/release/decision-trust-store.json \
+            --paygod-verifier external/paygod-kernel/tools/verify_portable_evidence.py \
+            --state-db out/release/authority.db \
+            --output-dir out/release/warrant
+
+      - name: Assert local Warrant issuance only
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+
+          const summary = JSON.parse(
+            fs.readFileSync('out/release/warrant/issuance-summary.json', 'utf8')
+          );
+          const warrant = JSON.parse(
+            fs.readFileSync('out/release/warrant/warrant-body.json', 'utf8')
+          );
+          const trust = JSON.parse(
+            fs.readFileSync('out/release/warrant/warrant-issuer-trust.json', 'utf8')
+          );
+          const candidate = JSON.parse(
+            fs.readFileSync('out/release/release-candidate.json', 'utf8')
+          );
+
+          if (summary.status !== 'LOCAL_WARRANT_ISSUED') {
+            throw new Error('Local Warrant was not issued');
+          }
+          if (summary.decision_status !== 'AUTHENTICATED_CANONICAL_ALLOW') {
+            throw new Error('Warrant issuance was not gated by authenticated canonical ALLOW');
+          }
+          if (summary.s0_state !== 'ISSUED') {
+            throw new Error('S0 did not remain at ISSUED after local Warrant issuance');
+          }
+          if (
+            summary.external_execution_performed !== false ||
+            summary.e1_performed !== false ||
+            summary.e2_performed !== false
+          ) {
+            throw new Error('Slice 1b must not execute E1, E2, or any external transition');
+          }
+          if (summary.decision_replay !== 'not_performed') {
+            throw new Error('Decision replay limitation was hidden');
+          }
+          if (summary.decision_issuer_key_id === summary.warrant_issuer_key_id) {
+            throw new Error('Decision signer and Warrant issuer trust roles collided');
+          }
+          if (warrant.transition_commitment !== candidate.transition.transition_commitment) {
+            throw new Error('Warrant transition commitment differs from canonical candidate');
+          }
+          if (warrant.enforcement_domain !== 'controlled-harness/t0-v0') {
+            throw new Error('Warrant escaped frozen enforcement domain');
+          }
+          if (trust.issuer_key_id !== warrant.issuer_key_id) {
+            throw new Error('Warrant issuer trust record does not match Warrant body');
+          }
+
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
       - name: Remove controlled decision private key
         if: always()
         run: rm -f "${{ runner.temp }}/paygod-controlled-decision-private.pem"
