@@ -21,6 +21,7 @@ const jobEvaluator = required("JOB_EVALUATOR").toLowerCase();
 const jobExpiredAt = required("JOB_EXPIRED_AT");
 const jobDescription = required("JOB_DESCRIPTION");
 const jobHook = required("JOB_HOOK").toLowerCase();
+const providerIngressUrl = required("PROVIDER_INGRESS_URL");
 
 // Anvil default account #0. Its secrecy is explicitly not a harness property.
 const alternatePrivateKey =
@@ -130,6 +131,48 @@ const adminProbe = await rpc(rAdminUrl, "eth_chainId", [], 1500);
 if (adminProbe.reachable) {
   throw new Error(
     "A52 failed: adversarial C reached R-admin: " + JSON.stringify(adminProbe)
+  );
+}
+
+let providerIngressReachable = false;
+let providerIngressResult = null;
+{
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1500);
+  try {
+    const response = await fetch(providerIngressUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-paygod-transition-commitment": "0".repeat(64),
+        "x-paygod-instance-id": "1",
+        "x-paygod-transaction-hash": "0x" + "0".repeat(64),
+        "x-paygod-provider-recipient": jobProvider,
+        "x-paygod-payload-sha256":
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      },
+      body: Buffer.alloc(0),
+      signal: controller.signal,
+    });
+    providerIngressReachable = true;
+    providerIngressResult = {
+      httpStatus: response.status,
+      body: (await response.text()).slice(0, 500),
+    };
+  } catch (err) {
+    providerIngressResult = {
+      reachable: false,
+      errorName: err?.name ?? "Error",
+      errorMessage: String(err?.message ?? err),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+if (providerIngressReachable) {
+  throw new Error(
+    "A18 failed: adversarial C reached protected provider ingress: " +
+      JSON.stringify(providerIngressResult)
   );
 }
 
@@ -317,6 +360,8 @@ const summary = {
   a51_privileged_rpc_rejected: true,
   a52_r_admin_reachable: false,
   a53_node_managed_protected_signing_rejected: true,
+  a18_provider_ingress_reachable: false,
+  a18_provider_ingress_probe: providerIngressResult,
   a54_alternate_account_tx_hash: alternateTxHash,
   a54_alternate_account_receipt_status: alternateReceipt.status,
   a54_alternate_sender: alternateSender,
