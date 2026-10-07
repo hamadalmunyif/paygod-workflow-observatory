@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { spawnSync } from "node:child_process";
 
 import { sha256Bytes } from "../src/digest.mjs";
 import { openAuthorityStateStoreV0 } from "../src/authority-state-v0.mjs";
@@ -33,8 +34,19 @@ function equal(actual, expected, label) {
 function truth(value, label) {
   if (value !== true) throw new Error(label + " must be true");
 }
-function padAddressTopic(address) {
-  return "0x" + "0".repeat(24) + address.slice(2).toLowerCase();
+function runCast(args) {
+  const result = spawnSync(castBin, args, {
+    encoding: "utf8",
+    env: process.env,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      "cast failed: " + (result.stderr || result.stdout || "").trim()
+    );
+  }
+  return result.stdout.trim().toLowerCase();
 }
 
 const decisionSummaryPath = requiredArg("--decision-summary");
@@ -54,6 +66,7 @@ const providerPayloadPath = requiredArg("--provider-payload");
 const gateZeroResultPath = requiredArg("--gate-zero-result");
 const stateDbPath = requiredArg("--state-db");
 const outputDir = requiredArg("--output-dir");
+const castBin = argValue("--cast-bin") ?? "cast";
 
 await fs.mkdir(outputDir, { recursive: true });
 
@@ -162,11 +175,12 @@ try {
   equal(txEvidence.transition_commitment, transition.transitionCommitment, "tx evidence transition commitment");
   equal(txEvidence.transaction_hash, String(receipt.transactionHash).toLowerCase(), "receipt transaction hash");
 
-  const topic0 = Array.isArray(receipt.logs) && receipt.logs.length > 0
-    ? String(receipt.logs[0]?.topics?.[0] ?? "").toLowerCase()
-    : "";
+  const topic0 = runCast([
+    "keccak",
+    "JobCreated(uint256,address,address,address,uint256,bytes32,address)",
+  ]);
   if (!/^0x[0-9a-f]{64}$/.test(topic0)) {
-    throw new Error("receipt lacks a usable JobCreated topic0");
+    throw new Error("pinned cast did not produce a valid JobCreated topic0");
   }
   const rederivedBinding = deriveMatchingJobInstanceV0({
     transition,
