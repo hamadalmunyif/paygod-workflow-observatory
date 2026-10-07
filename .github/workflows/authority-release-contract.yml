@@ -49,6 +49,13 @@ jobs:
         run: |
           node scripts/build-controlled-release-candidate.mjs             --request-shadow out/release/request-shadow.json             --transition-envelope out/release/transition-envelope.json             --output out/release/release-candidate.json
 
+      - name: Verify exact Release Candidate derivation
+        run: |
+          node scripts/verify-controlled-release-candidate.mjs \
+            --request-shadow out/release/request-shadow.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --candidate out/release/release-candidate.json
+
       - name: Checkout pinned PayGod kernel
         uses: actions/checkout@v4
         with:
@@ -98,6 +105,7 @@ jobs:
           const candidate = JSON.parse(fs.readFileSync('out/release/release-candidate.json', 'utf8'));
           const packBytes = fs.readFileSync('packs/controlled-authority-release-v0/pack.yaml');
           const packSha = crypto.createHash('sha256').update(packBytes).digest('hex');
+          const expectedPackSha = 'e4b94e20b6f93e899e9e93eaf2a9844c74483e1abbea88d13dbdc5033eabbca9';
 
           if (validate.status !== 'success') throw new Error('PayGod validate did not succeed');
           if (verified.status !== 'valid' || verified.verification?.integrity !== 'verified') {
@@ -112,8 +120,11 @@ jobs:
           if (receipt.pack?.version !== '0.1.0') {
             throw new Error('Unexpected release pack version');
           }
-          if (receipt.pack?.digest_sha256 !== packSha) {
-            throw new Error('Receipt pack digest differs from exact pack.yaml bytes');
+          if (packSha !== expectedPackSha) {
+            throw new Error(`Release pack digest drifted from pinned v0 digest: ${packSha}`);
+          }
+          if (receipt.pack?.digest_sha256 !== expectedPackSha) {
+            throw new Error('Receipt pack digest differs from pinned controlled release v0 digest');
           }
           if (receipt.verdict?.value !== 'allow') {
             throw new Error('Expected canonical release verdict allow');
