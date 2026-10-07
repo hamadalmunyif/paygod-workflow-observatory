@@ -1,4 +1,5 @@
 import { authorityFail } from "./authority-error.mjs";
+import { sha256Bytes } from "./digest.mjs";
 
 function requireHex(value, bytes, code, label) {
   const re = new RegExp("^0x[0-9a-fA-F]{" + bytes * 2 + "}$");
@@ -93,6 +94,15 @@ export function deriveMatchingJobInstanceV0({
     authorityFail(
       "POSTFLIGHT_CALLDATA_INVALID",
       "observed transaction calldata is invalid"
+    );
+  }
+
+  const calldataBytes = Buffer.from(input.slice(2), "hex");
+  const observedCalldataSha256 = sha256Bytes(calldataBytes);
+  if (observedCalldataSha256 !== expectedTx.calldata_sha256) {
+    authorityFail(
+      "POSTFLIGHT_CALLDATA_MISMATCH",
+      "observed transaction calldata differs from authorized transition"
     );
   }
 
@@ -201,6 +211,8 @@ export function deriveMatchingJobInstanceV0({
     chain_id: observedChainId,
     execution_account: expectedFrom,
     target: expectedTo,
+    calldata_sha256: observedCalldataSha256,
+    native_value: expectedTx.native_value,
     provider: expectedProvider,
     instance_type: "ControlledJobRailV0.jobId",
     instance_id: jobId.toString(10),
