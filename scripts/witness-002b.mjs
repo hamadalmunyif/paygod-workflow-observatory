@@ -196,7 +196,9 @@ record("002b-06-normalized-stale-manifest", "pack", "PACK_NORMALIZED_DIGEST_MISM
 
 record("002b-07-normalized-and-manifest-recomputed", "pack", "PACK_DERIVATION_MISMATCH", () => {
   const changed = clone(normalized);
-  changed.query = "__tampered_query__";
+  const derived = offering(changed);
+  if (!derived) throw new Error(`Offering ${offeringName} not found in normalized observation`);
+  derived.capability.description = `${derived.capability.description ?? ""} [normalized-only-tamper]`;
   const changedManifest = buildObservationManifest({
     mode: "discover",
     rawBytes,
@@ -288,7 +290,9 @@ record("002b-13-capability-identity-mutated", "descriptor", "REQUEST_CAPABILITY_
 
 record("002b-14-multifault-pack-before-request", "precedence", "PACK_NORMALIZED_DIGEST_MISMATCH", () => {
   const changed = clone(normalized);
-  changed.query = "__tampered_query__";
+  const derived = offering(changed);
+  if (!derived) throw new Error(`Offering ${offeringName} not found in normalized observation`);
+  derived.capability.description = `${derived.capability.description ?? ""} [stale-manifest-tamper]`;
   verifyObservationPack({ rawBytes, normalized: changed, manifest });
 
   const payload = { limit: 5000 };
