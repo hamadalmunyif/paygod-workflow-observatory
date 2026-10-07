@@ -1,0 +1,18 @@
+{
+  "schema": "workflow-observatory/controlled-release-profile/v0",
+  "paygodKernelCommit": "23ea2cca74ef8b698718c6d0c8dbda447f13bb37",
+  "standaloneVerifierVersion": "0.4.0",
+  "pack": {
+    "path": "packs/controlled-authority-release-v0",
+    "name": "controlled-authority-release-v0",
+    "version": "0.1.0",
+    "digestSha256": "ea21e54e165c90418a6d4a903108441fa6d7c0e2c425adc14c0f62a430b9dc7b",
+    "allowedVerdict": "allow",
+    "allowedRule": "controlled-local-release"
+  },
+  "enforcementDomain": "controlled-harness/t0-v0",
+  "chainId": 31337,
+  "paygodReceiptIssuerAuthenticityRequired": false,
+  "paygodDecisionReplayPerformed": false,
+  "externalExecutionAuthorized": false
+}
