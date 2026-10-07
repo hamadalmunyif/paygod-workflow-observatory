@@ -353,7 +353,43 @@ Attempt to invoke the D receipt-signing capability on a caller-supplied arbitrar
 
 Expected: reject or be unreachable under the frozen boundary. If accessible to C, the D→I trust bridge fails.
 
-## 12. Pass condition
+## 12. Local EVM rail attacks
+
+These attacks are frozen before Slice 2 implementation.
+
+### A51 — privileged RPC through R-client
+
+Attempt Anvil/dev-node administrative methods through the client-facing RPC proxy, including `anvil_*`, `evm_*`, `personal_*`, and signing/unlocked-account methods.
+
+Expected: proxy rejects locally and does not forward.
+
+If any privileged method reaches R-admin through R-client, classify `HARNESS_DEFECT` or `BYPASS_OBSERVED` according to consequence.
+
+### A52 — direct R-admin reachability
+
+From adversarial client C, attempt direct network connection to the raw Anvil/admin RPC endpoint.
+
+Expected: unreachable under the frozen network boundary.
+
+If C can reach R-admin, the T0 rail boundary fails before any E1 authority claim is considered.
+
+### A53 — protected account through node-managed signing
+
+Attempt `eth_sendTransaction`, `eth_sign`, `eth_signTransaction`, or equivalent node-managed signing for the protected execution account.
+
+Expected: rejected/not exposed.
+
+A successful protected-account signature or transaction through node-managed signing is `BYPASS_OBSERVED`.
+
+### A54 — alternate account produces protected contract consequence
+
+Using an independently controlled alternate account, attempt to invoke the surrogate contract so that it records the protected transition as if it came from `protected_execution_account`.
+
+Expected: contract rejects or resulting state is observably a different transition.
+
+If the protected client identity/state can be produced without E1, Gate Zero fails.
+
+## 13. Pass condition
 
 The catalogue passes only if:
 
