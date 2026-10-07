@@ -868,11 +868,19 @@ jobs:
             --state-db out/release/authority-state.db \
             --output-dir out/release/gate-zero-t0
 
+      - name: Freeze T0 RPC audit evidence
+        run: |
+          set -euo pipefail
+          cp \
+            out/release/local-evm/r-client-audit.jsonl \
+            out/release/gate-zero-t0/r-client-audit.frozen.jsonl
+          chmod 0444 out/release/gate-zero-t0/r-client-audit.frozen.jsonl
+
       - name: Derive frozen T0 Gate Zero result
         run: |
           node scripts/build-gate-zero-t0-result-v0.mjs \
             --client-preflight out/release/gate-zero-client/preflight.json \
-            --rpc-audit out/release/local-evm/r-client-audit.jsonl \
+            --rpc-audit out/release/gate-zero-t0/r-client-audit.frozen.jsonl \
             --pre-e2 out/release/gate-zero-t0/pre-e2.json \
             --post-e2 out/release/gate-zero-t0/post-e2.json \
             --post-e1 out/release/gate-zero-t0/post-e1.json \
@@ -889,6 +897,13 @@ jobs:
           if [ -f out/release/local-evm/anvil.pid ]; then
             kill "$(cat out/release/local-evm/anvil.pid)" 2>/dev/null || true
           fi
+
+      - name: Verify frozen T0 evidence digests after cleanup
+        run: |
+          node scripts/verify-gate-zero-t0-evidence-v0.mjs \
+            --result out/release/gate-zero-t0/result.json \
+            --release-root out/release \
+            --output out/release/gate-zero-t0/evidence-verification.json
 
       - name: Upload local release contract evidence
         if: always()
