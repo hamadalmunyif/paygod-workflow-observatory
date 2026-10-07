@@ -1,4 +1,5 @@
 import { authorityFail } from "./authority-error.mjs";
+import { sha256Bytes } from "./digest.mjs";
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const NONCE_HEX = /^[0-9a-f]{64}$/;
@@ -52,6 +53,13 @@ function requireTime(value, code, label) {
   return value;
 }
 
+function requireBytes(value, code, label) {
+  if (Buffer.isBuffer(value)) return Buffer.from(value);
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (typeof value === "string") return Buffer.from(value, "utf8");
+  authorityFail(code, label + " must be explicit bytes or UTF-8 text");
+}
+
 function normalizeRow(row) {
   if (!row) return null;
   return {
@@ -93,6 +101,22 @@ export class AuthorityStateStoreV0 {
         "consumed_at INTEGER," +
         "created_at INTEGER NOT NULL," +
         "updated_at INTEGER NOT NULL," +
+        "PRIMARY KEY (issuer_key_id, nonce)" +
+      ") STRICT"
+    );
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS e2_payload_stage (" +
+        "issuer_key_id TEXT NOT NULL," +
+        "nonce TEXT NOT NULL," +
+        "transition_commitment TEXT NOT NULL," +
+        "warrant_body_sha256 TEXT NOT NULL," +
+        "payload_sha256 TEXT NOT NULL," +
+        "payload_channel TEXT NOT NULL," +
+        "payload_recipient TEXT NOT NULL," +
+        "payload_content_type TEXT NOT NULL," +
+        "payload_bytes BLOB NOT NULL," +
+        "payload_byte_length INTEGER NOT NULL," +
+        "created_at INTEGER NOT NULL," +
         "PRIMARY KEY (issuer_key_id, nonce)" +
       ") STRICT"
     );
@@ -239,13 +263,16 @@ export class AuthorityStateStoreV0 {
     }
   }
 
-  stagePayload({
+  stagePayloadExact({
     issuerKeyId,
     nonce,
     transitionCommitment,
     enforcementDomain,
     warrantBodySha256,
-    payloadSha256,
+    payloadBytes,
+    payloadChannel,
+    payloadRecipient,
+    payloadContentType,
   }) {
     requireIssuerKeyId(issuerKeyId);
     requireNonce(nonce);
@@ -254,7 +281,19 @@ export class AuthorityStateStoreV0 {
       "S0_WARRANT_BODY_DIGEST_INVALID",
       "warrant_body_sha256"
     );
-    requireSha256(payloadSha256, "S0_PAYLOAD_DIGEST_INVALID", "payload_sha256");
+    const exactPayloadBytes = requireBytes(
+      payloadBytes,
+      "S0_PAYLOAD_BYTES_REQUIRED",
+      "payload_bytes"
+    );
+    const payloadSha256 = sha256Bytes(exactPayloadBytes);
+    requireString(payloadChannel, "S0_PAYLOAD_CHANNEL_REQUIRED", "payload_channel");
+    requireString(payloadRecipient, "S0_PAYLOAD_RECIPIENT_REQUIRED", "payload_recipient");
+    requireString(
+      payloadContentType,
+      "S0_PAYLOAD_CONTENT_TYPE_REQUIRED",
+      "payload_content_type"
+    );
     const now = requireTime(this.now(), "S0_NOW_INVALID", "harness time");
 
     return this._transaction(() => {
@@ -271,8 +310,41 @@ export class AuthorityStateStoreV0 {
           "payload staging requires ISSUED, observed " + row.state
         );
       }
+      const existingStage = this.db
+        .prepare(
+          "SELECT issuer_key_id FROM e2_payload_stage WHERE issuer_key_id = ? AND nonce = ?"
+        )
+        .get(issuerKeyId, nonce);
+      if (existingStage) {
+        authorityFail(
+          "S0_STAGE_ALREADY_EXISTS",
+          "an immutable staged payload already exists for issuer_key_id + nonce"
+        );
+      }
 
       this.db
+        .prepare(
+          "INSERT INTO e2_payload_stage (" +
+          "issuer_key_id, nonce, transition_commitment, warrant_body_sha256, " +
+          "payload_sha256, payload_channel, payload_recipient, payload_content_type, " +
+          "payload_bytes, payload_byte_length, created_at" +
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .run(
+          issuerKeyId,
+          nonce,
+          transitionCommitment,
+          warrantBodySha256,
+          payloadSha256,
+          payloadChannel,
+          payloadRecipient,
+          payloadContentType,
+          exactPayloadBytes,
+          exactPayloadBytes.length,
+          now
+        );
+
+      const update = this.db
         .prepare(
           "UPDATE authority_state SET state = 'PAYLOAD_STAGED', " +
           "staged_payload_sha256 = ?, updated_at = ? " +
@@ -280,8 +352,45 @@ export class AuthorityStateStoreV0 {
         )
         .run(payloadSha256, now, issuerKeyId, nonce);
 
-      return normalizeRow(this._select(issuerKeyId, nonce));
+      if (Number(update.changes) !== 1) {
+        authorityFail(
+          "S0_STAGE_STATE_RACE",
+          "authority state did not transition exactly once to PAYLOAD_STAGED"
+        );
+      }
+
+      return {
+        state: normalizeRow(this._select(issuerKeyId, nonce)),
+        stage: this.getStagedPayload({ issuerKeyId, nonce }),
+      };
     });
+  }
+
+  getStagedPayload({ issuerKeyId, nonce }) {
+    requireIssuerKeyId(issuerKeyId);
+    requireNonce(nonce);
+    const row = this.db
+      .prepare(
+        "SELECT issuer_key_id, nonce, transition_commitment, warrant_body_sha256, " +
+        "payload_sha256, payload_channel, payload_recipient, payload_content_type, " +
+        "payload_bytes, payload_byte_length, created_at " +
+        "FROM e2_payload_stage WHERE issuer_key_id = ? AND nonce = ?"
+      )
+      .get(issuerKeyId, nonce);
+    if (!row) return null;
+    return {
+      issuerKeyId: row.issuer_key_id,
+      nonce: row.nonce,
+      transitionCommitment: row.transition_commitment,
+      warrantBodySha256: row.warrant_body_sha256,
+      payloadSha256: row.payload_sha256,
+      payloadChannel: row.payload_channel,
+      payloadRecipient: row.payload_recipient,
+      payloadContentType: row.payload_content_type,
+      payloadBytes: Buffer.from(row.payload_bytes),
+      payloadByteLength: row.payload_byte_length,
+      createdAt: row.created_at,
+    };
   }
 
   reserveTransaction({
