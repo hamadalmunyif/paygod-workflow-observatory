@@ -285,6 +285,16 @@ try {
   equal(e2Release.committed_provider, staged.payloadRecipient, "release provider");
   equal(e2Release.instance_id, instanceBinding.instance_id, "release instance id");
   equal(e2Release.transaction_hash, instanceBinding.transaction_hash, "release transaction hash");
+  equal(
+    e2Release.payload_content_type,
+    staged.payloadContentType,
+    "release payload content type"
+  );
+  equal(
+    e2Release.released_at_ms,
+    releaseEvents[0].eventTimestamp,
+    "release event time"
+  );
   truth(e2Release.exact_staged_bytes_released, "release exact staged bytes");
   equal(e2Release.provider_delivery, "OBSERVED", "provider delivery status");
 
@@ -292,11 +302,21 @@ try {
   equal(providerObservation.observation_grade, "RUNTIME_OBSERVED", "provider observation grade");
   equal(providerObservation.payload_sha256, staged.payloadSha256, "provider payload digest");
   equal(providerObservation.payload_byte_length, staged.payloadByteLength, "provider payload length");
+  equal(
+    providerObservation.content_type,
+    staged.payloadContentType,
+    "provider payload content type"
+  );
   equal(providerObservation.provider_identity, staged.payloadRecipient, "provider identity");
   equal(providerObservation.transition_commitment, transition.transitionCommitment, "provider transition commitment");
   equal(providerObservation.instance_id, instanceBinding.instance_id, "provider instance id");
   equal(providerObservation.transaction_hash, instanceBinding.transaction_hash, "provider transaction hash");
-
+  if (
+    !Number.isSafeInteger(providerObservation.observed_at_ms) ||
+    providerObservation.observed_at_ms < e2Release.released_at_ms
+  ) {
+    throw new Error("provider observation time precedes PAYLOAD_RELEASED");
+  }
   equal(
     gateZero?.result,
     "NO_BYPASS_OBSERVED_UNDER_T0_E1_PRE_PROVIDER",
