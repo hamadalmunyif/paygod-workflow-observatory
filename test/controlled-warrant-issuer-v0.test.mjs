@@ -180,7 +180,7 @@ test(
   async () => {
     await withStore(({ store, now }) => {
       const { publicKey, privateKey } = generateIssuerKeyPairV0();
-      const result = issueControlledWarrantV0({
+      const result = issueControlledWarrantFromTrustedDecisionV0({
         ...inputs(),
         issuerPrivateKey: privateKey,
         issuerPublicKey: publicKey,
@@ -227,7 +227,7 @@ test(
 
       expectCode(
         () =>
-          issueControlledWarrantV0({
+          issueControlledWarrantFromTrustedDecisionV0({
             ...base,
             receiptBytes,
             paygodVerification: verification,
@@ -254,7 +254,7 @@ test(
 
       expectCode(
         () =>
-          issueControlledWarrantV0({
+          issueControlledWarrantFromTrustedDecisionV0({
             ...base,
             requestShadow: substitutedShadow,
             issuerPrivateKey: privateKey,
@@ -278,7 +278,7 @@ test(
 
       expectCode(
         () =>
-          issueControlledWarrantV0({
+          issueControlledWarrantFromTrustedDecisionV0({
             ...base,
             transitionEnvelopeBytes: substitutedTx.bytes,
             issuerPrivateKey: privateKey,
@@ -302,7 +302,7 @@ test(
 
       expectCode(
         () =>
-          issueControlledWarrantV0({
+          issueControlledWarrantFromTrustedDecisionV0({
             ...inputs({ releaseProfile: badProfile }),
             issuerPrivateKey: privateKey,
             issuerPublicKey: publicKey,
@@ -331,7 +331,7 @@ test(
 
       expectCode(
         () =>
-          issueControlledWarrantV0({
+          issueControlledWarrantFromTrustedDecisionV0({
             ...base,
             paygodVerification: verification,
             issuerPrivateKey: privateKey,
@@ -352,7 +352,7 @@ test(
       const firstKeys = generateIssuerKeyPairV0();
       const nonce = "cd".repeat(32);
 
-      const first = issueControlledWarrantV0({
+      const first = issueControlledWarrantFromTrustedDecisionV0({
         ...inputs(),
         issuerPrivateKey: firstKeys.privateKey,
         issuerPublicKey: firstKeys.publicKey,
@@ -363,7 +363,7 @@ test(
 
       expectCode(
         () =>
-          issueControlledWarrantV0({
+          issueControlledWarrantFromTrustedDecisionV0({
             ...inputs(),
             issuerPrivateKey: firstKeys.privateKey,
             issuerPublicKey: firstKeys.publicKey,
