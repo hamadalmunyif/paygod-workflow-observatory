@@ -104,7 +104,9 @@ function mutateRaw(mutator) {
   const target = agent.offerings.find((o) => o?.name === offeringName);
   mutator({ payload, agent, offering: target });
   const nextRawBytes = Buffer.from(JSON.stringify(payload));
-  const nextNormalized = normalizeBrowse(payload, { query: normalized?.query ?? null });
+  const nextNormalized = JSON.parse(
+    canonicalJson(normalizeBrowse(payload, { query: normalized?.query ?? null }))
+  );
   const nextManifest = buildObservationManifest({
     mode: "discover",
     rawBytes: nextRawBytes,
