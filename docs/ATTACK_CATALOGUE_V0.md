@@ -307,6 +307,20 @@ Attempt payload release before `TX_EXECUTED`.
 
 Expected: reject.
 
+### A42 — second payload release
+
+After one successful future `PAYLOAD_RELEASED` transition, attempt to release the same staged payload again.
+
+Expected: reject or produce no second protected provider consequence.
+
+This attack remains frozen now even though provider release is implemented in a later slice.
+
+### A43 — staged-payload replacement
+
+After successful E2 staging, attempt to replace the stored payload bytes, digest, recipient, channel, or content type under the same issuer/nonce.
+
+Expected: reject. The original exact staged bytes must remain unchanged.
+
 ## 11. Decision-authenticity bridge attacks
 
 These attacks are frozen before Warrant issuance implementation.
@@ -366,3 +380,5 @@ The catalogue passes only if:
 Passing this catalogue supports only the bounded T0 claim defined in `THREAT_MODEL_T0.md`.
 
 Decision-authenticity attacks A44-A50 must pass before any local Warrant issuance witness may be promoted beyond design-only status.
+
+E2 staging must not be promoted beyond local staging evidence until A3-A7, A9, A11-A12, A22-A23, A37-A39, and A43 are exercised against the E2 implementation.
