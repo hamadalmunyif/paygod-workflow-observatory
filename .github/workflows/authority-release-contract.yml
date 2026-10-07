@@ -108,17 +108,44 @@ jobs:
           const packSha = crypto.createHash('sha256').update(packBytes).digest('hex');
           const expectedPackSha = 'ea21e54e165c90418a6d4a903108441fa6d7c0e2c425adc14c0f62a430b9dc7b';
 
+          if (profile.paygodKernelCommit !== '23ea2cca74ef8b698718c6d0c8dbda447f13bb37') {
+            throw new Error('Controlled release profile kernel commit drifted');
+          }
+          if (profile.standaloneVerifierVersion !== verified.verifier_version) {
+            throw new Error('Standalone verifier version differs from frozen profile');
+          }
+          if (profile.pack.digestSha256 !== expectedPackSha) {
+            throw new Error('Controlled release profile pack digest differs from pinned workflow digest');
+          }
+          if (profile.pack.name !== 'controlled-authority-release-v0' || profile.pack.version !== '0.1.0') {
+            throw new Error('Controlled release profile pack identity drifted');
+          }
+          if (profile.pack.allowedVerdict !== 'allow' || profile.pack.allowedRule !== 'controlled-local-release') {
+            throw new Error('Controlled release profile verdict contract drifted');
+          }
+          if (profile.paygodReceiptIssuerAuthenticityRequired !== false) {
+            throw new Error('Profile unexpectedly claims PayGod receipt issuer authenticity');
+          }
+          if (profile.paygodDecisionReplayPerformed !== false) {
+            throw new Error('Profile unexpectedly claims PayGod decision replay');
+          }
           if (validate.status !== 'success') throw new Error('PayGod validate did not succeed');
           if (verified.status !== 'valid' || verified.verification?.integrity !== 'verified') {
             throw new Error('Standalone PayGod verifier did not verify integrity');
           }
+          if (verified.verification?.issuer_authenticity !== 'not_verified') {
+            throw new Error('Unexpected PayGod receipt issuer-authenticity state');
+          }
+          if (verified.verification?.replay !== 'not_performed') {
+            throw new Error('Unexpected PayGod decision replay state');
+          }
           if (receipt.input?.canonical_hash !== validate.data?.hash) {
             throw new Error('Receipt input canonical hash differs from canonical validate hash');
           }
-          if (receipt.pack?.name !== 'controlled-authority-release-v0') {
+          if (receipt.pack?.name !== profile.pack.name) {
             throw new Error('Unexpected release pack name');
           }
-          if (receipt.pack?.version !== '0.1.0') {
+          if (receipt.pack?.version !== profile.pack.version) {
             throw new Error('Unexpected release pack version');
           }
           if (packSha !== expectedPackSha) {
@@ -127,10 +154,10 @@ jobs:
           if (receipt.pack?.digest_sha256 !== expectedPackSha) {
             throw new Error('Receipt pack digest differs from pinned controlled release v0 digest');
           }
-          if (receipt.verdict?.value !== 'allow') {
+          if (receipt.verdict?.value !== profile.pack.allowedVerdict) {
             throw new Error('Expected canonical release verdict allow');
           }
-          if (receipt.verdict?.rule_name !== 'controlled-local-release') {
+          if (receipt.verdict?.rule_name !== profile.pack.allowedRule) {
             throw new Error('Expected controlled-local-release rule');
           }
           if (
@@ -167,6 +194,10 @@ jobs:
             integrity: verified.verification.integrity,
             transitionCommitment: candidate.transition.transition_commitment,
             requestIdentity: candidate.request.admitted_request_identity_sha256,
+            attemptId: candidate.request.attempt_id,
+            attemptCommitmentSha256: candidate.request.attempt_commitment_sha256,
+            issuerAuthenticity: verified.verification.issuer_authenticity,
+            replay: verified.verification.replay,
             publicOrAcpExecutionPerformed: false
           };
           fs.writeFileSync(
