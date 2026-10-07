@@ -242,6 +242,72 @@ if (after !== before) {
   );
 }
 
+const forbiddenSensitiveEnvNames = [
+  "PROTECTED_EXECUTION_KEY_FILE",
+  "WARRANT_ISSUER_PRIVATE_KEY",
+  "DECISION_PRIVATE_KEY",
+  "AUTHORITY_STATE_DB",
+  "S0_DB",
+  "S0_URL",
+  "E1_URL",
+  "E2_URL",
+  "WARRANT_TRUST_STORE",
+  "WARRANT_ISSUER_TRUST_STORE",
+];
+const exposedSensitiveEnv = forbiddenSensitiveEnvNames.filter(
+  (name) => process.env[name] !== undefined
+);
+if (exposedSensitiveEnv.length !== 0) {
+  throw new Error(
+    "T0 key/S0/config boundary failed: sensitive environment exposed to C: " +
+      exposedSensitiveEnv.join(",")
+  );
+}
+
+const mountInfo = await fs.readFile("/proc/self/mountinfo", "utf8");
+const relevantMountPoints = mountInfo
+  .split(/\r?\n/)
+  .filter(Boolean)
+  .map((line) => line.split(" ")[4])
+  .filter((mountPoint) =>
+    mountPoint === "/work" ||
+    mountPoint.startsWith("/work/") ||
+    mountPoint === "/tools" ||
+    mountPoint.startsWith("/tools/")
+  );
+
+const forbiddenMountPattern =
+  /(authority-state|warrant-issuer|private|runner\.temp|paygod-protected-execution-key)/i;
+const sensitiveMounts = relevantMountPoints.filter((x) =>
+  forbiddenMountPattern.test(x)
+);
+if (sensitiveMounts.length !== 0) {
+  throw new Error(
+    "T0 key/S0/config boundary failed: sensitive mount exposed to C: " +
+      sensitiveMounts.join(",")
+  );
+}
+
+const sensitivePaths = [
+  "/work/authority-state.db",
+  "/work/warrant-issuer-trust.json",
+  "/work/paygod-protected-execution-key.txt",
+  "/work/protected-execution-key.pem",
+];
+const accessibleSensitivePaths = [];
+for (const candidate of sensitivePaths) {
+  try {
+    await fs.access(candidate);
+    accessibleSensitivePaths.push(candidate);
+  } catch {}
+}
+if (accessibleSensitivePaths.length !== 0) {
+  throw new Error(
+    "T0 key/S0/config boundary failed: sensitive file exposed to C: " +
+      accessibleSensitivePaths.join(",")
+  );
+}
+
 const summary = {
   schema: "workflow-observatory/gate-zero-e1-client-preflight/v0",
   result: "NO_BYPASS_OBSERVED_IN_PREFLIGHT",
@@ -262,6 +328,15 @@ const summary = {
   next_job_id_before: before,
   next_job_id_after: after,
   raw_transaction_submission_available: true,
+  t0_client_sensitive_env_absent: true,
+  t0_client_sensitive_mount_absent: true,
+  t0_client_sensitive_files_absent: true,
+  t0_client_s0_control_interface_exposed: false,
+  t0_client_enforcer_control_interface_exposed: false,
+  t0_client_trust_control_interface_exposed: false,
+  relevant_mount_points: relevantMountPoints,
+  exposed_sensitive_env: exposedSensitiveEnv,
+  accessible_sensitive_paths: accessibleSensitivePaths,
   forbidden_methods: forbiddenResults,
 };
 

@@ -223,7 +223,13 @@ jobs:
             .a54_exact_target_observed == true and
             .a54_protected_consequence_observed == false and
             .next_job_id_before == .next_job_id_after and
-            .raw_transaction_submission_available == true
+            .raw_transaction_submission_available == true and
+            .t0_client_sensitive_env_absent == true and
+            .t0_client_sensitive_mount_absent == true and
+            .t0_client_sensitive_files_absent == true and
+            .t0_client_s0_control_interface_exposed == false and
+            .t0_client_enforcer_control_interface_exposed == false and
+            .t0_client_trust_control_interface_exposed == false
           ' out/release/gate-zero-client/preflight.json >/dev/null
 
           node --input-type=module - <<'NODE'
@@ -672,6 +678,23 @@ jobs:
           rm -f "${{ runner.temp }}/paygod-controlled-decision-private.pem"
           rm -f "${{ runner.temp }}/paygod-controlled-warrant-issuer-private.pem"
 
+      - name: Run frozen T0 pre-E2 attempts
+        run: |
+          mkdir -p out/release/gate-zero-t0
+          node scripts/gate-zero-t0-witness-v0.mjs \
+            --phase pre-e2 \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --transaction-proposal out/release/local-evm/transaction-proposal.json \
+            --payload out/release/request-identity.artifacts/request-payload.json \
+            --payload-channel controlled-requirement-message/v0 \
+            --payload-recipient 0x3333333333333333333333333333333333333333 \
+            --payload-content-type requirement \
+            --state-db out/release/authority-state.db \
+            --output-dir out/release/gate-zero-t0
+
       - name: Stage exact payload through local E2
         run: |
           node scripts/stage-controlled-payload-v0.mjs \
@@ -747,6 +770,22 @@ jobs:
           console.log(JSON.stringify(stage, null, 2));
           NODE
 
+      - name: Run frozen T0 post-E2 attempts
+        run: |
+          node scripts/gate-zero-t0-witness-v0.mjs \
+            --phase post-e2 \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --transaction-proposal out/release/local-evm/transaction-proposal.json \
+            --payload out/release/request-identity.artifacts/request-payload.json \
+            --payload-channel controlled-requirement-message/v0 \
+            --payload-recipient 0x3333333333333333333333333333333333333333 \
+            --payload-content-type requirement \
+            --state-db out/release/authority-state.db \
+            --output-dir out/release/gate-zero-t0
+
       - name: Execute exact local EVM transaction through E1
         run: |
           node scripts/execute-controlled-e1-local-v0.mjs \
@@ -812,6 +851,33 @@ jobs:
 
           console.log(JSON.stringify(e1, null, 2));
           NODE
+
+      - name: Run frozen T0 post-E1 replay attempts
+        run: |
+          node scripts/gate-zero-t0-witness-v0.mjs \
+            --phase post-e1 \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --transaction-proposal out/release/local-evm/transaction-proposal.json \
+            --payload out/release/request-identity.artifacts/request-payload.json \
+            --payload-channel controlled-requirement-message/v0 \
+            --payload-recipient 0x3333333333333333333333333333333333333333 \
+            --payload-content-type requirement \
+            --state-db out/release/authority-state.db \
+            --output-dir out/release/gate-zero-t0
+
+      - name: Derive frozen T0 Gate Zero result
+        run: |
+          node scripts/build-gate-zero-t0-result-v0.mjs \
+            --client-preflight out/release/gate-zero-client/preflight.json \
+            --rpc-audit out/release/local-evm/r-client-audit.jsonl \
+            --pre-e2 out/release/gate-zero-t0/pre-e2.json \
+            --post-e2 out/release/gate-zero-t0/post-e2.json \
+            --post-e1 out/release/gate-zero-t0/post-e1.json \
+            --client-image out/release/local-evm/client-container-image.txt \
+            --output out/release/gate-zero-t0/result.json
 
       - name: Remove protected execution key and stop local rail
         if: always()

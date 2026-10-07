@@ -152,6 +152,14 @@ The conditional update succeeds only if:
 
 Two concurrent reservations for the same nonce must yield at most one success.
 
+Reference SQLite concurrency profile:
+
+- `journal_mode=WAL`;
+- `synchronous=FULL`;
+- `busy_timeout=5000` milliseconds.
+
+The bounded busy timeout does not retry authority semantics or make a consumed nonce reusable. It only allows a contending writer to wait for the current SQLite write transaction to finish, then evaluate the now-current state. The expected loser of a same-nonce race is therefore rejected by the state predicate rather than surfacing a transient `SQLITE_BUSY` transport/storage error.
+
 ## 9. Transaction result
 
 After transaction submission:
