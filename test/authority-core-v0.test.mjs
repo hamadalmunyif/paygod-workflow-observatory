@@ -32,7 +32,8 @@ function expectCode(fn, code) {
 
 const requestIdentitySha256 = "11".repeat(32);
 const calldataSha256 = "22".repeat(32);
-const payloadSha256 = "33".repeat(32);
+const payloadBytes = Buffer.from('{"company":"Example"}', "utf8");
+const payloadSha256 = sha256Bytes(payloadBytes);
 const executionAccount = "0x" + "44".repeat(20);
 const target = "0x" + "55".repeat(20);
 const provider = "0x" + "66".repeat(20);
@@ -323,15 +324,20 @@ test(
       "S0_NONCE_ALREADY_REGISTERED"
     );
 
-    const staged = store.stagePayload({
+    const staged = store.stagePayloadExact({
       issuerKeyId,
       nonce,
       transitionCommitment: transition.transitionCommitment,
       enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
       warrantBodySha256: warrant.bodySha256,
-      payloadSha256,
+      payloadBytes,
+      payloadChannel: "controlled-requirement-message/v0",
+      payloadRecipient: provider,
+      payloadContentType: "requirement",
     });
-    assert.equal(staged.state, "PAYLOAD_STAGED");
+    assert.equal(staged.state.state, "PAYLOAD_STAGED");
+    assert.equal(staged.stage.payloadSha256, payloadSha256);
+    assert.ok(staged.stage.payloadBytes.equals(payloadBytes));
 
     const reserved = store.reserveTransaction({
       issuerKeyId,
@@ -400,13 +406,16 @@ test(
 
     expectCode(
       () =>
-        store.stagePayload({
+        store.stagePayloadExact({
           issuerKeyId,
           nonce,
           transitionCommitment: "dd".repeat(32),
           enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
       warrantBodySha256: warrant.bodySha256,
-          payloadSha256,
+          payloadBytes,
+          payloadChannel: "controlled-requirement-message/v0",
+          payloadRecipient: provider,
+          payloadContentType: "requirement",
         }),
       "S0_TRANSITION_COMMITMENT_MISMATCH"
     );
@@ -414,13 +423,16 @@ test(
     now += 2_000;
     expectCode(
       () =>
-        store.stagePayload({
+        store.stagePayloadExact({
           issuerKeyId,
           nonce,
           transitionCommitment: transition.transitionCommitment,
           enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
       warrantBodySha256: warrant.bodySha256,
-          payloadSha256,
+          payloadBytes,
+          payloadChannel: "controlled-requirement-message/v0",
+          payloadRecipient: provider,
+          payloadContentType: "requirement",
         }),
       "S0_WARRANT_EXPIRED"
     );
@@ -463,13 +475,16 @@ test(
 
     expectCode(
       () =>
-        store.stagePayload({
+        store.stagePayloadExact({
           issuerKeyId,
           nonce,
           transitionCommitment: transition.transitionCommitment,
           enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
           warrantBodySha256: "de".repeat(32),
-          payloadSha256,
+          payloadBytes,
+          payloadChannel: "controlled-requirement-message/v0",
+          payloadRecipient: provider,
+          payloadContentType: "requirement",
         }),
       "S0_WARRANT_BODY_DIGEST_MISMATCH"
     );
@@ -509,13 +524,16 @@ test(
       expiresAt: warrant.body.expires_at,
       warrantBodySha256: warrant.bodySha256,
     });
-    store.stagePayload({
+    store.stagePayloadExact({
       issuerKeyId,
       nonce,
       transitionCommitment: transition.transitionCommitment,
       enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
       warrantBodySha256: warrant.bodySha256,
-      payloadSha256,
+      payloadBytes,
+      payloadChannel: "controlled-requirement-message/v0",
+      payloadRecipient: provider,
+      payloadContentType: "requirement",
     });
     store.reserveTransaction({
       issuerKeyId,
