@@ -225,6 +225,16 @@ if (String(alternateTx.body.result.to ?? "").toLowerCase() !== target) {
   );
 }
 
+const alternateSender = String(alternateTx.body.result.from ?? "").toLowerCase();
+if (!/^0x[0-9a-f]{40}$/.test(alternateSender)) {
+  throw new Error("A54 harness defect: alternate transaction sender is invalid");
+}
+if (alternateSender === protectedAccount) {
+  throw new Error(
+    "A54 failed: alternate signer unexpectedly produced the protected sender identity"
+  );
+}
+
 const after = await nextJobId();
 if (after !== before) {
   throw new Error(
@@ -243,6 +253,9 @@ const summary = {
   a53_node_managed_protected_signing_rejected: true,
   a54_alternate_account_tx_hash: alternateTxHash,
   a54_alternate_account_receipt_status: alternateReceipt.status,
+  a54_alternate_sender: alternateSender,
+  a54_protected_sender: protectedAccount,
+  a54_alternate_sender_differs_from_protected: true,
   a54_exact_calldata_observed: true,
   a54_exact_target_observed: true,
   a54_protected_consequence_observed: false,
