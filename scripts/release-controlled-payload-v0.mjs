@@ -64,6 +64,20 @@ function requireEqual(actual, expected, label) {
   if (actual !== expected) throw new Error(label + " mismatch");
 }
 
+for (const forbidden of [
+  "--payload",
+  "--payload-bytes",
+  "--provider-recipient",
+  "--job-id",
+  "--instance-id",
+]) {
+  if (process.argv.includes(forbidden)) {
+    throw new Error(
+      "E2_RELEASE_CALLER_OVERRIDE_FORBIDDEN: " + forbidden
+    );
+  }
+}
+
 const warrantBodyPath = requiredArg("--warrant-body");
 const warrantSignaturePath = requiredArg("--warrant-signature");
 const trustPath = requiredArg("--warrant-trust-store");
