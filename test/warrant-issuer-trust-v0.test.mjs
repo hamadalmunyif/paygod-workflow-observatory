@@ -7,6 +7,7 @@ import { generateIssuerKeyPairV0 } from "../src/warrant-v0.mjs";
 import {
   buildWarrantIssuerTrustStoreV0,
   resolveWarrantIssuerFromExternalTrustV0,
+  trustedWarrantIssuersFromExternalTrustV0,
 } from "../src/warrant-issuer-trust-v0.mjs";
 
 function expectCode(fn, code) {
@@ -127,5 +128,38 @@ test("non-Ed25519 Warrant issuer private key is rejected", () => {
         trustStore: built.trust,
       }),
     "WARRANT_ISSUER_PRIVATE_KEY_TYPE_INVALID"
+  );
+});
+
+
+test("external trust store builds verifier map from exact SPKI identity", () => {
+  const pair = generateIssuerKeyPairV0();
+  const built = buildWarrantIssuerTrustStoreV0({ publicKey: pair.publicKey });
+
+  const resolved = trustedWarrantIssuersFromExternalTrustV0({
+    trustStore: built.trust,
+    trustStoreBytes: built.bytes,
+  });
+
+  assert.equal(resolved.issuerKeyIds.length, 1);
+  assert.equal(resolved.issuerKeyIds[0], built.issuerKeyId);
+  assert.equal(resolved.trustStoreSha256, built.sha256);
+  assert.equal(resolved.trustedIssuers.has(built.issuerKeyId), true);
+});
+
+test("external trust store rejects key id that does not match SPKI bytes", () => {
+  const pairA = generateIssuerKeyPairV0();
+  const pairB = generateIssuerKeyPairV0();
+  const builtA = buildWarrantIssuerTrustStoreV0({ publicKey: pairA.publicKey });
+  const builtB = buildWarrantIssuerTrustStoreV0({ publicKey: pairB.publicKey });
+  const trust = structuredClone(builtA.trust);
+  trust.keys[0].issuer_key_id = builtB.issuerKeyId;
+
+  expectCode(
+    () =>
+      trustedWarrantIssuersFromExternalTrustV0({
+        trustStore: trust,
+      }),
+    "WARRANT_TRUST_KEY_ID_MISMATCH"
   );
 });

@@ -455,6 +455,81 @@ jobs:
           rm -f "${{ runner.temp }}/paygod-controlled-decision-private.pem"
           rm -f "${{ runner.temp }}/paygod-controlled-warrant-issuer-private.pem"
 
+      - name: Stage exact payload through local E2
+        run: |
+          node scripts/stage-controlled-payload-v0.mjs \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --payload out/release/request-identity.artifacts/request-payload.json \
+            --payload-channel controlled-requirement-message/v0 \
+            --payload-recipient 0x3333333333333333333333333333333333333333 \
+            --payload-content-type requirement \
+            --state-db out/release/authority-state.db \
+            --output-dir out/release/e2
+
+      - name: Assert E2 staging only and restart persistence
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
+
+          const stage = JSON.parse(
+            fs.readFileSync('out/release/e2/e2-stage.json', 'utf8')
+          );
+          const warrant = JSON.parse(
+            fs.readFileSync('out/release/warrant/warrant-body.json', 'utf8')
+          );
+          const exactPayload = fs.readFileSync(
+            'out/release/request-identity.artifacts/request-payload.json'
+          );
+          const stagedCopy = fs.readFileSync(
+            'out/release/e2/staged-payload.bin'
+          );
+
+          if (stage.status !== 'PAYLOAD_STAGED' || stage.s0State !== 'PAYLOAD_STAGED') {
+            throw new Error('E2 did not stop at PAYLOAD_STAGED');
+          }
+          if (stage.exactPayloadBytesPersisted !== true) {
+            throw new Error('E2 did not preserve exact staged payload bytes');
+          }
+          if (!exactPayload.equals(stagedCopy)) {
+            throw new Error('Persisted staged payload copy differs from frozen request bytes');
+          }
+          if (
+            stage.providerDelivered !== false ||
+            stage.e1Executed !== false ||
+            stage.evmTransactionSubmitted !== false
+          ) {
+            throw new Error('E2 staging crossed the frozen consequence boundary');
+          }
+
+          const store = await openAuthorityStateStoreV0(
+            'out/release/authority-state.db'
+          );
+          try {
+            const row = store.get({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            const persisted = store.getStagedPayload({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            if (row?.state !== 'PAYLOAD_STAGED') {
+              throw new Error('S0 restart did not preserve PAYLOAD_STAGED');
+            }
+            if (!persisted?.payloadBytes?.equals(exactPayload)) {
+              throw new Error('S0 restart did not preserve exact staged bytes');
+            }
+          } finally {
+            store.close();
+          }
+
+          console.log(JSON.stringify(stage, null, 2));
+          NODE
+
       - name: Upload local release contract evidence
         if: always()
         uses: actions/upload-artifact@v4
