@@ -28,6 +28,24 @@ jobs:
       - name: Run observatory tests
         run: npm test
 
+      - name: Run frozen T0 authority runtime tests
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/t0
+          node --test \
+            test/authority-core-v0.test.mjs \
+            test/e1-transaction-gate-v0.test.mjs \
+            test/e2-payload-gate-v0.test.mjs \
+            test/warrant-issuer-trust-v0.test.mjs \
+            test/controlled-warrant-issuer-v0.test.mjs \
+            test/controlled-decision-admission-v0.test.mjs \
+            | tee out/release/t0/runtime-tests.tap
+
+          grep -F "A14 concurrent double use allows at most one TX_RESERVED transition" out/release/t0/runtime-tests.tap
+          grep -F "A9 changed payload bytes are rejected" out/release/t0/runtime-tests.tap
+          grep -F "S0 persists nonce consumption across restart and rejects replay" out/release/t0/runtime-tests.tap
+          grep -F "A55 caller operational metadata is rejected" out/release/t0/runtime-tests.tap
+
       - name: Build fixture Observation Pack
         run: |
           node bin/workflow-observatory.mjs discover             --input test/fixtures/browse.json             --query risk             --output-dir out/release/observation-pack
@@ -672,6 +690,86 @@ jobs:
           rm -f "${{ runner.temp }}/paygod-controlled-decision-private.pem"
           rm -f "${{ runner.temp }}/paygod-controlled-warrant-issuer-private.pem"
 
+      - name: Probe A9 valid-Warrant payload substitution before E2
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/gate-zero-e1
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
+          import { stagePayloadThroughE2V0 } from './src/e2-payload-gate-v0.mjs';
+          import { trustedWarrantIssuersFromExternalTrustV0 } from './src/warrant-issuer-trust-v0.mjs';
+
+          const bodyBytes = fs.readFileSync('out/release/warrant/warrant-body.json');
+          const signatureBytes = fs.readFileSync('out/release/warrant/warrant.sig');
+          const trustBytes = fs.readFileSync('out/release/warrant-issuer-trust.json');
+          const trustStore = JSON.parse(trustBytes.toString('utf8'));
+          const trusted = trustedWarrantIssuersFromExternalTrustV0({
+            trustStore,
+            trustStoreBytes: trustBytes,
+          });
+          const envelopeBytes = fs.readFileSync('out/release/transition-envelope.json');
+          const exactPayload = fs.readFileSync(
+            'out/release/request-identity.artifacts/request-payload.json'
+          );
+          const tamperedPayload = Buffer.concat([
+            exactPayload,
+            Buffer.from(' ', 'utf8'),
+          ]);
+          const warrant = JSON.parse(bodyBytes.toString('utf8'));
+          const store = await openAuthorityStateStoreV0(
+            'out/release/authority-state.db'
+          );
+
+          let observedCode = null;
+          try {
+            try {
+              stagePayloadThroughE2V0({
+                warrantBodyBytes: bodyBytes,
+                warrantSignatureBytes: signatureBytes,
+                trustedWarrantIssuers: trusted.trustedIssuers,
+                transitionEnvelopeBytes: envelopeBytes,
+                payloadBytes: tamperedPayload,
+                payloadChannel: 'controlled-requirement-message/v0',
+                payloadRecipient: '0x3333333333333333333333333333333333333333',
+                payloadContentType: 'requirement',
+                authorityStateStore: store,
+                expectedDomain: trusted.enforcementDomain,
+              });
+            } catch (err) {
+              observedCode = err?.code ?? null;
+            }
+
+            if (observedCode !== 'E2_PAYLOAD_DIGEST_MISMATCH') {
+              throw new Error(
+                'A9 did not fail with E2_PAYLOAD_DIGEST_MISMATCH: ' + observedCode
+              );
+            }
+
+            const row = store.get({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            if (row?.state !== 'ISSUED') {
+              throw new Error('A9 changed S0 despite rejected payload substitution');
+            }
+
+            const result = {
+              attack: 'A9',
+              result: 'REJECTED_AS_EXPECTED',
+              observed_code: observedCode,
+              s0_state_after_attempt: row.state,
+            };
+            fs.writeFileSync(
+              'out/release/gate-zero-e1/a9-payload-substitution.json',
+              JSON.stringify(result, null, 2) + '\n'
+            );
+            console.log(JSON.stringify(result, null, 2));
+          } finally {
+            store.close();
+          }
+          NODE
+
       - name: Stage exact payload through local E2
         run: |
           node scripts/stage-controlled-payload-v0.mjs \
@@ -747,6 +845,39 @@ jobs:
           console.log(JSON.stringify(stage, null, 2));
           NODE
 
+      - name: Probe C reachability to protected key, S0, and trust stores
+        env:
+          CLIENT_IMAGE: "node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8"
+        run: |
+          set -euo pipefail
+          docker pull "$CLIENT_IMAGE" >/dev/null
+
+          docker run --rm \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/t0-client-boundary-probe-v0.mjs,dst=/work/t0-client-boundary-probe-v0.mjs,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/out/release/gate-zero-e1,dst=/work/out" \
+            -e PROTECTED_KEY_HOST_PATH="$PROTECTED_EXECUTION_KEY_FILE" \
+            -e S0_HOST_PATH="$GITHUB_WORKSPACE/out/release/authority-state.db" \
+            -e DECISION_TRUST_HOST_PATH="$GITHUB_WORKSPACE/out/release/decision-trust-store.json" \
+            -e WARRANT_TRUST_HOST_PATH="$GITHUB_WORKSPACE/out/release/warrant-issuer-trust.json" \
+            -e BOUNDARY_PROBE_OUTPUT="/work/out/client-boundary.json" \
+            "$CLIENT_IMAGE" \
+            node /work/t0-client-boundary-probe-v0.mjs
+
+          jq -e '
+            .result == "NO_CLIENT_SECRET_OR_S0_REACHABILITY_OBSERVED" and
+            .protected_key_host_path_readable == false and
+            .protected_key_host_path_writable == false and
+            .s0_host_path_readable == false and
+            .s0_host_path_writable == false and
+            .decision_trust_store_readable == false and
+            .decision_trust_store_writable == false and
+            .warrant_trust_store_readable == false and
+            .warrant_trust_store_writable == false and
+            .docker_socket_readable == false and
+            .docker_socket_writable == false and
+            (.suspicious_secret_env_names | length) == 0
+          ' out/release/gate-zero-e1/client-boundary.json >/dev/null
+
       - name: Execute exact local EVM transaction through E1
         run: |
           node scripts/execute-controlled-e1-local-v0.mjs \
@@ -811,6 +942,211 @@ jobs:
           }
 
           console.log(JSON.stringify(e1, null, 2));
+          NODE
+
+      - name: Probe A15 replay after S0 restart from TX_EXECUTED
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
+          import { reserveTransactionThroughE1V0 } from './src/e1-transaction-gate-v0.mjs';
+          import { trustedWarrantIssuersFromExternalTrustV0 } from './src/warrant-issuer-trust-v0.mjs';
+
+          const bodyBytes = fs.readFileSync('out/release/warrant/warrant-body.json');
+          const signatureBytes = fs.readFileSync('out/release/warrant/warrant.sig');
+          const trustBytes = fs.readFileSync('out/release/warrant-issuer-trust.json');
+          const trustStore = JSON.parse(trustBytes.toString('utf8'));
+          const trusted = trustedWarrantIssuersFromExternalTrustV0({
+            trustStore,
+            trustStoreBytes: trustBytes,
+          });
+          const envelopeBytes = fs.readFileSync('out/release/transition-envelope.json');
+          const proposal = JSON.parse(
+            fs.readFileSync(
+              'out/release/local-evm/transaction-proposal.json',
+              'utf8'
+            )
+          );
+          const warrant = JSON.parse(bodyBytes.toString('utf8'));
+          const store = await openAuthorityStateStoreV0(
+            'out/release/authority-state.db'
+          );
+
+          let observedCode = null;
+          try {
+            try {
+              reserveTransactionThroughE1V0({
+                warrantBodyBytes: bodyBytes,
+                warrantSignatureBytes: signatureBytes,
+                trustedWarrantIssuers: trusted.trustedIssuers,
+                transitionEnvelopeBytes: envelopeBytes,
+                transaction: {
+                  system: proposal.system,
+                  chainId: proposal.chain_id,
+                  executionAccount: proposal.execution_account,
+                  target: proposal.target,
+                  calldataBytes: Buffer.from(
+                    proposal.calldata_hex.slice(2),
+                    'hex'
+                  ),
+                  nativeValue: proposal.native_value,
+                },
+                authorityStateStore: store,
+                expectedDomain: trusted.enforcementDomain,
+              });
+            } catch (err) {
+              observedCode = err?.code ?? null;
+            }
+
+            if (observedCode !== 'S0_STATE_INVALID') {
+              throw new Error(
+                'A15 replay did not fail with S0_STATE_INVALID: ' + observedCode
+              );
+            }
+
+            const row = store.get({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            if (row?.state !== 'TX_EXECUTED') {
+              throw new Error('A15 replay altered durable TX_EXECUTED state');
+            }
+
+            const result = {
+              attack: 'A15',
+              result: 'REJECTED_AS_EXPECTED',
+              observed_code: observedCode,
+              s0_state_after_restart_and_replay: row.state,
+            };
+            fs.writeFileSync(
+              'out/release/gate-zero-e1/a15-restart-replay.json',
+              JSON.stringify(result, null, 2) + '\n'
+            );
+            console.log(JSON.stringify(result, null, 2));
+          } finally {
+            store.close();
+          }
+          NODE
+
+      - name: Assemble bounded E1 Gate Zero witness
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+
+          const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
+          const manifest = readJson('contracts/t0-e1-gate-zero-manifest-v0.json');
+          const preflight = readJson('out/release/gate-zero-client/preflight.json');
+          const boundary = readJson('out/release/gate-zero-e1/client-boundary.json');
+          const a9 = readJson('out/release/gate-zero-e1/a9-payload-substitution.json');
+          const a15 = readJson('out/release/gate-zero-e1/a15-restart-replay.json');
+          const e1 = readJson('out/release/e1/e1-execution.json');
+          const tap = fs.readFileSync('out/release/t0/runtime-tests.tap', 'utf8');
+
+          const requiredTapNames = [
+            'A14 concurrent double use allows at most one TX_RESERVED transition',
+            'A9 changed payload bytes are rejected',
+            'S0 persists nonce consumption across restart and rejects replay',
+            'A55 caller operational metadata is rejected',
+            'second reservation is rejected after TX_RESERVED consumption',
+            'issuer private key absent from external trust store is rejected',
+            'A29/A30 deny decision cannot mint a Warrant',
+            'A44 unsigned decision receipt is rejected',
+            'A45 untrusted decision signer is rejected',
+            'A46 receipt mutation after signature is rejected',
+          ];
+          for (const name of requiredTapNames) {
+            if (!tap.includes(name)) {
+              throw new Error('Missing frozen T0 runtime test evidence: ' + name);
+            }
+          }
+
+          if (
+            preflight.result !== 'NO_BYPASS_OBSERVED_IN_PREFLIGHT' ||
+            preflight.a51_privileged_rpc_rejected !== true ||
+            preflight.a52_r_admin_reachable !== false ||
+            preflight.a53_node_managed_protected_signing_rejected !== true ||
+            preflight.a54_alternate_sender_differs_from_protected !== true ||
+            preflight.a54_protected_consequence_observed !== false ||
+            preflight.next_job_id_before !== preflight.next_job_id_after ||
+            preflight.raw_transaction_submission_available !== true
+          ) {
+            throw new Error('Frozen E1 RPC preflight evidence is incomplete');
+          }
+
+          if (
+            boundary.result !== 'NO_CLIENT_SECRET_OR_S0_REACHABILITY_OBSERVED' ||
+            boundary.protected_key_host_path_readable !== false ||
+            boundary.protected_key_host_path_writable !== false ||
+            boundary.s0_host_path_readable !== false ||
+            boundary.s0_host_path_writable !== false ||
+            boundary.decision_trust_store_readable !== false ||
+            boundary.decision_trust_store_writable !== false ||
+            boundary.warrant_trust_store_readable !== false ||
+            boundary.warrant_trust_store_writable !== false ||
+            boundary.docker_socket_readable !== false ||
+            boundary.docker_socket_writable !== false
+          ) {
+            throw new Error('Frozen C boundary evidence is incomplete');
+          }
+
+          if (a9.result !== 'REJECTED_AS_EXPECTED' || a9.s0_state_after_attempt !== 'ISSUED') {
+            throw new Error('A9 witness probe did not reject cleanly');
+          }
+          if (
+            a15.result !== 'REJECTED_AS_EXPECTED' ||
+            a15.s0_state_after_restart_and_replay !== 'TX_EXECUTED'
+          ) {
+            throw new Error('A15 witness probe did not preserve consumed state');
+          }
+          if (e1.status !== 'TX_EXECUTED' || e1.s0State !== 'TX_EXECUTED') {
+            throw new Error('Legitimate E1 path did not reach TX_EXECUTED');
+          }
+
+          const witness = {
+            schema: 'workflow-observatory/t0-e1-gate-zero-witness/v0',
+            result: 'NO_BYPASS_OBSERVED_UNDER_T0_E1',
+            claim: manifest.claim_ceiling,
+            threat_model: 'T0',
+            enforcement_surface: 'E1',
+            legitimate_path_state: 'TX_EXECUTED',
+            attacks: {
+              'A0/A17': 'REJECTED_AS_EXPECTED',
+              'A1/A53': 'REJECTED_AS_EXPECTED',
+              'A2/A54': 'REJECTED_AS_EXPECTED',
+              A9: 'REJECTED_AS_EXPECTED',
+              A13: 'REJECTED_AS_EXPECTED',
+              A14: 'AT_MOST_ONE_SUCCEEDED',
+              A15: 'REJECTED_AS_EXPECTED',
+              A16: 'NO_AGENT_ACCESSIBLE_RESET_PATH_OBSERVED',
+              A21: 'NO_AGENT_ACCESSIBLE_REPLACEMENT_PATH_OBSERVED',
+              'A22/A49/A56': 'NO_AGENT_ACCESSIBLE_TRUST_MUTATION_PATH_OBSERVED',
+              A23: 'REJECTED_AS_EXPECTED',
+              A51: 'REJECTED_AS_EXPECTED',
+              A52: 'REJECTED_AS_EXPECTED',
+              A55: 'REJECTED_AS_EXPECTED',
+              'T0-KEY-REACH': 'REJECTED_AS_EXPECTED',
+              'T0-S0-REACH': 'REJECTED_AS_EXPECTED',
+            },
+            limitations: {
+              full_two_surface_t0_complete: false,
+              e2_provider_release_complete: false,
+              conditional_release_authority_proven: false,
+              independent_production_enforcement_boundary: false,
+              trusted_external_time: false,
+              decision_replay_performed: false,
+              economic_fee_authority: false,
+              t1_host_or_rollback_tests_executed: false,
+              ap2_pass_b_complete: false,
+            },
+          };
+
+          fs.writeFileSync(
+            'out/release/gate-zero-e1/witness.json',
+            JSON.stringify(witness, null, 2) + '\n'
+          );
+          console.log(JSON.stringify(witness, null, 2));
           NODE
 
       - name: Remove protected execution key and stop local rail
