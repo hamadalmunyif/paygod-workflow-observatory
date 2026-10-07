@@ -583,3 +583,26 @@ test(
     await fs.rm(dir, { recursive: true, force: true });
   }
 );
+
+
+test(
+  "S0 concurrent opens tolerate bounded WAL metadata contention",
+  { skip: !sqliteAvailable },
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "paygod-s0-open-"));
+    const dbPath = path.join(dir, "authority.db");
+    let stores = [];
+    try {
+      stores = await Promise.all([
+        openAuthorityStateStoreV0(dbPath),
+        openAuthorityStateStoreV0(dbPath),
+      ]);
+      assert.equal(stores.length, 2);
+    } finally {
+      for (const store of stores) {
+        try { store.close(); } catch {}
+      }
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }
+);
