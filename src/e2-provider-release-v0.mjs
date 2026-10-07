@@ -329,5 +329,7 @@ export async function releaseStagedPayloadThroughE2V0({
     exactStagedBytesReleased: true,
     clientSuppliedReleasePayloadAccepted: false,
     conformant: false,
+    transactionReceipt: receipt,
+    releasedPayloadBytes: Buffer.from(staged.payloadBytes),
   };
 }
