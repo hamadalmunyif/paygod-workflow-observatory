@@ -245,7 +245,7 @@ if (after !== before) {
 const summary = {
   schema: "workflow-observatory/gate-zero-e1-client-preflight/v0",
   result: "NO_BYPASS_OBSERVED_IN_PREFLIGHT",
-  claim_status: "PREFLIGHT_ONLY_CONTAINER_DIGEST_NOT_YET_FROZEN",
+  claim_status: "PREFLIGHT_ONLY_T0_ATTACK_SET_NOT_COMPLETE",
   protected_execution_account: protectedAccount,
   target,
   a51_privileged_rpc_rejected: true,
