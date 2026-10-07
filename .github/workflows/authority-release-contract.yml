@@ -942,53 +942,24 @@ jobs:
           set -euo pipefail
           mkdir -p out/release/postflight-attacks
 
+          node scripts/test-e2-post-execution-release-v0.mjs \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --tx-evidence out/release/e1/tx-evidence.json \
+            --state-db out/release/authority-state.db \
+            --rpc-url "$LOCAL_RPC_URL" \
+            --provider-url "http://127.0.0.1:18547/release" \
+            --output out/release/postflight-attacks/a19-a27.json
+
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
-          const tx = JSON.parse(
-            fs.readFileSync('out/release/e1/tx-evidence.json', 'utf8')
-          );
-          fs.writeFileSync(
-            'out/release/postflight-attacks/a19-tx-evidence.json',
-            JSON.stringify({ ...tx, attack_marker: 'A19' }) + '\n'
-          );
-          fs.writeFileSync(
-            'out/release/postflight-attacks/a27-tx-evidence.json',
-            JSON.stringify({ ...tx, input: '0x00' + String(tx.input).slice(4) }) + '\n'
-          );
           fs.writeFileSync(
             'out/release/postflight-attacks/attacker-payload.bin',
             Buffer.from('attacker-controlled-payload', 'utf8')
           );
           NODE
-
-          run_release() {
-            node scripts/release-controlled-payload-v0.mjs \
-              --warrant-body out/release/warrant/warrant-body.json \
-              --warrant-signature out/release/warrant/warrant.sig \
-              --warrant-trust-store out/release/warrant-issuer-trust.json \
-              --transition-envelope out/release/transition-envelope.json \
-              --tx-evidence "$1" \
-              --state-db out/release/authority-state.db \
-              --rpc-url "$LOCAL_RPC_URL" \
-              --provider-url "http://127.0.0.1:18547/release" \
-              --output-dir out/release/postflight-attacks/release-output
-          }
-
-          if run_release out/release/postflight-attacks/a19-tx-evidence.json \
-            > out/release/postflight-attacks/a19.log 2>&1; then
-            echo "A19 failed: mutated E2 transaction evidence was accepted"
-            exit 1
-          fi
-          grep -q 'E2_RELEASE_TX_EVIDENCE_DIGEST_MISMATCH' \
-            out/release/postflight-attacks/a19.log
-
-          if run_release out/release/postflight-attacks/a27-tx-evidence.json \
-            > out/release/postflight-attacks/a27.log 2>&1; then
-            echo "A27 failed: changed transaction evidence was accepted"
-            exit 1
-          fi
-          grep -q 'E2_RELEASE_TX_EVIDENCE_DIGEST_MISMATCH' \
-            out/release/postflight-attacks/a27.log
 
           common_args=(
             --warrant-body out/release/warrant/warrant-body.json
@@ -1033,6 +1004,9 @@ jobs:
           import fs from 'node:fs';
           import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
 
+          const base = JSON.parse(
+            fs.readFileSync('out/release/postflight-attacks/a19-a27.json', 'utf8')
+          );
           const warrant = JSON.parse(
             fs.readFileSync('out/release/warrant/warrant-body.json', 'utf8')
           );
@@ -1063,25 +1037,18 @@ jobs:
             state_after: 'TX_EXECUTED',
             provider_delivery_observed: false,
             attempts: {
-              A19: {
-                classification: 'REJECTED_AS_EXPECTED',
-                mechanism: 'exact S0 tx-evidence digest binding'
-              },
+              ...base.attempts,
               A26: {
                 classification: 'REJECTED_AS_EXPECTED',
                 mechanism: 'caller release payload override forbidden'
               },
-              A27: {
-                classification: 'REJECTED_AS_EXPECTED',
-                mechanism: 'changed transaction evidence rejected before release'
-              },
               A28: {
                 classification: 'REJECTED_AS_EXPECTED',
-                mechanism: 'caller job-id carrier forbidden; instance derives from receipt'
+                mechanism: 'caller job-id carrier forbidden; instance remains receipt-derived'
               },
               A37: {
                 classification: 'REJECTED_AS_EXPECTED',
-                mechanism: 'caller provider-recipient override forbidden; recipient remains committed'
+                mechanism: 'caller provider-recipient override forbidden'
               }
             }
           };
@@ -1235,6 +1202,7 @@ jobs:
             --provider-observation out/release/provider/provider-observation.json \
             --provider-payload out/release/provider/provider-received-payload.bin \
             --gate-zero-result out/release/gate-zero-t0/result.json \
+            --e2-release-attacks out/release/postflight-attacks/e2-release-attacks.json \
             --rpc-url "$LOCAL_RPC_URL" \
             --release-root out/release \
             --output-dir out/release/postflight-verifier
@@ -1295,6 +1263,15 @@ jobs:
             }
           } finally {
             store.close();
+          }
+
+          for (const item of conformance.attack_classifications ?? []) {
+            if (item.status !== 'RUNTIME_REJECTED') {
+              throw new Error(
+                'post-flight attack was not runtime rejected: ' +
+                  JSON.stringify(item)
+              );
+            }
           }
 
           if (
