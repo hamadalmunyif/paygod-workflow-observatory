@@ -188,7 +188,7 @@ jobs:
 
       - name: Run adversarial C transaction-surface preflight
         env:
-          CLIENT_IMAGE: "node:22-bookworm-slim"
+          CLIENT_IMAGE: "node:22-bookworm"
         run: |
           set -euo pipefail
           mkdir -p out/release/gate-zero-client
