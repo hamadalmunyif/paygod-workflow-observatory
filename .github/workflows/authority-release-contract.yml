@@ -189,6 +189,11 @@ jobs:
       - name: Run adversarial C transaction-surface preflight
         env:
           CLIENT_IMAGE: "node:22-bookworm"
+          JOB_PROVIDER: "0x3333333333333333333333333333333333333333"
+          JOB_EVALUATOR: "0x4444444444444444444444444444444444444444"
+          JOB_EXPIRED_AT: "2000000000"
+          JOB_DESCRIPTION: "controlled local job v0"
+          JOB_HOOK: "0x0000000000000000000000000000000000000000"
         run: |
           set -euo pipefail
           mkdir -p out/release/gate-zero-client
@@ -200,7 +205,7 @@ jobs:
 
           CALLDATA_HEX="$(tr -d '\n\r ' < out/release/local-evm/calldata.hex)"
 
-          docker run --rm             --add-host=harness-host:host-gateway             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/gate-zero-e1-client-v0.mjs,dst=/work/gate-zero-e1-client-v0.mjs,readonly"             --mount "type=bind,src=$GITHUB_WORKSPACE/out/release/gate-zero-client,dst=/work/out"             --mount "type=bind,src=$FOUNDRY_DIR/cast,dst=/tools/cast,readonly"             -e R_CLIENT_URL="http://harness-host:18546"             -e R_ADMIN_URL="http://harness-host:18545"             -e TARGET="$SURROGATE_ADDRESS"             -e PROTECTED_EXECUTION_ACCOUNT="$PROTECTED_EXECUTION_ACCOUNT"             -e CALLDATA_HEX="$CALLDATA_HEX"             -e GATE_ZERO_OUTPUT="/work/out/preflight.json"             "$CLIENT_IMAGE"             node /work/gate-zero-e1-client-v0.mjs
+          docker run --rm             --add-host=harness-host:host-gateway             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/gate-zero-e1-client-v0.mjs,dst=/work/gate-zero-e1-client-v0.mjs,readonly"             --mount "type=bind,src=$GITHUB_WORKSPACE/out/release/gate-zero-client,dst=/work/out"             --mount "type=bind,src=$FOUNDRY_DIR/cast,dst=/tools/cast,readonly"             -e R_CLIENT_URL="http://harness-host:18546"             -e R_ADMIN_URL="http://harness-host:18545"             -e TARGET="$SURROGATE_ADDRESS"             -e PROTECTED_EXECUTION_ACCOUNT="$PROTECTED_EXECUTION_ACCOUNT"             -e CALLDATA_HEX="$CALLDATA_HEX"             -e JOB_PROVIDER="$JOB_PROVIDER"             -e JOB_EVALUATOR="$JOB_EVALUATOR"             -e JOB_EXPIRED_AT="$JOB_EXPIRED_AT"             -e JOB_DESCRIPTION="$JOB_DESCRIPTION"             -e JOB_HOOK="$JOB_HOOK"             -e GATE_ZERO_OUTPUT="/work/out/preflight.json"             "$CLIENT_IMAGE"             node /work/gate-zero-e1-client-v0.mjs
 
           jq -e '
             .result == "NO_BYPASS_OBSERVED_IN_PREFLIGHT" and
@@ -208,6 +213,8 @@ jobs:
             .a51_privileged_rpc_rejected == true and
             .a52_r_admin_reachable == false and
             .a53_node_managed_protected_signing_rejected == true and
+            .a54_exact_calldata_observed == true and
+            .a54_exact_target_observed == true and
             .a54_protected_consequence_observed == false and
             .next_job_id_before == .next_job_id_after and
             .raw_transaction_submission_available == true
