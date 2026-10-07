@@ -236,3 +236,12 @@ It does not establish:
 - rollback resistance against host administrators;
 - production durability;
 - global replay prevention across independent deployments.
+
+
+## 16. Exact Warrant body binding at enforcement entry
+
+Both `stagePayload` and `reserveTransaction` require the exact `warrant_body_sha256` and compare it to the value registered at `ISSUED`.
+
+This makes a signed-but-unregistered or differently registered Warrant fail at the state boundary even if a caller forgets to perform a separate comparison.
+
+This is defense in depth; E1/E2 still verify the signature and transition surface independently.
