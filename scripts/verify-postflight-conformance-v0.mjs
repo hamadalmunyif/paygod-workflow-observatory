@@ -389,7 +389,7 @@ try {
     stagedInDb &&
       stagedInDb.payloadBytes.equals(stagedPayload) &&
       sha256Bytes(stagedPayload) === transition.envelope.payload.payload_sha256 &&
-      e2Stage.stagedPayloadSha256 === transition.envelope.payload.payload_sha256,
+      e2Stage.payloadSha256 === transition.envelope.payload.payload_sha256,
     "S0 staged bytes and E2 stage evidence equal the committed payload"
   );
   check(
