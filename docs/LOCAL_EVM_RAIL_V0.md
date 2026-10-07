@@ -276,3 +276,32 @@ Passing the local rail does not prove:
 - portability.
 
 It exists only to make Slice 2 falsifiable without letting the dev-chain's administrative conveniences trivialize Gate Zero.
+
+
+## 16. Application action versus transaction mechanics
+
+Transition Envelope v0 binds the protected **application action**:
+
+- chain id;
+- protected execution account;
+- contract target;
+- exact calldata digest;
+- native value.
+
+The first local harness does not pre-commit:
+
+- account nonce;
+- gas limit;
+- gas price;
+- EIP-1559 fee fields;
+- raw signed transaction hash.
+
+Those fields are chosen/derived by E1 at submission time and preserved in post-flight evidence.
+
+This is an explicit claim limitation, not semantic equivalence.
+
+Because the local chain currency has no economic value, Slice 2 does not claim fee-risk control.
+
+A future public/value-bearing rail would require explicit fee/gas bounds in the authority envelope before the same Warrant model could support an economic execution claim.
+
+C must not be able to supply or override operational transaction metadata through the protected E1 API unless a field is explicitly added to a future frozen authority profile.
