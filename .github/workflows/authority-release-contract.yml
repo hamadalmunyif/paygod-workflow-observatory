@@ -1049,6 +1049,7 @@ jobs:
             'A9 changed payload bytes are rejected',
             'S0 persists nonce consumption across restart and rejects replay',
             'A55 caller operational metadata is rejected',
+            'A12 stale or changed Transition Envelope is rejected',
             'second reservation is rejected after TX_RESERVED consumption',
             'issuer private key absent from external trust store is rejected',
             'A29/A30 deny decision cannot mint a Warrant',
