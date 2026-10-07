@@ -151,3 +151,30 @@ During Slice 1 the valid description is:
 `BUILD_LOCAL_SLICE_1`
 
 with all external/live paths remaining rejected or unauthorized.
+
+
+## 9. Post-Slice-1 decision
+
+Authority Core v0 Slice 1 has been implemented and hardened.
+
+Before Slice 2 E1/E2 enforcement, the repository must implement the semantic bridge defined by `RELEASE_DECISION_CONTRACT_V0.md`.
+
+Authorized next slice:
+
+`BUILD_RELEASE_DECISION_BINDING_V0`
+
+Scope:
+
+- Release Candidate v0 exact artifact;
+- dedicated local-only D2 release pack;
+- Kernel-owned canonical-hash checks for D1/D2 inputs;
+- D1/D2/cross-artifact linkage verification;
+- issuer precondition logic;
+- adversarial tests A42-A55.
+
+Still not authorized in this slice:
+
+- E1 transaction submission;
+- E2 provider release;
+- local EVM transaction;
+- ACP or any third-party action.
