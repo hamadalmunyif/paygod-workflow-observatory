@@ -180,6 +180,8 @@ The implementation must support atomic state transitions and durable replay prot
 
 Before moving S0 from `ISSUED` to `PAYLOAD_STAGED`, E2 must verify:
 
+- a matching S0 `ISSUED` registration exists;
+- the exact warrant-body digest matches the registered digest;
 - trusted issuer key;
 - detached signature over exact Warrant body bytes;
 - enforcement domain;
@@ -198,6 +200,8 @@ The client must not be able to replace staged bytes without producing a new tran
 
 Before moving from `PAYLOAD_STAGED` toward execution, E1 must verify:
 
+- a matching S0 record exists;
+- the exact warrant-body digest matches the registered digest;
 - all Warrant validity conditions;
 - same transition commitment as the staged payload;
 - exact chain/system;
