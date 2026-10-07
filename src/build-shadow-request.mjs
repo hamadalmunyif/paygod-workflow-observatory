@@ -1,7 +1,10 @@
 import { PROVENANCE, provenance } from "./provenance.mjs";
-import { sha256CanonicalJson } from "./digest.mjs";
 import { validateJsonSchemaSubset } from "./schema-validate.mjs";
-import { assertSubmittedRequestIdentity } from "./request-identity.mjs";
+import {
+  assertAttemptCommitment,
+  assertSubmittedRequestIdentity,
+  exactJsonArtifactDigest,
+} from "./request-identity.mjs";
 
 export class AdmissionError extends Error {
   constructor(code, message) {
@@ -32,6 +35,7 @@ export function buildShadowRequest({
   packVerification,
   offeringName,
   requestPayload = null,
+  requestPayloadBytes = null,
   submittedRequestIdentity = null,
 }) {
   if (packVerification?.status !== "VERIFIED") {
@@ -76,24 +80,37 @@ export function buildShadowRequest({
           ? "CANDIDATE_LOCAL_VALIDATED"
           : "CANDIDATE_UNVALIDATED";
 
+  const descriptorArtifact = selected
+    ? exactJsonArtifactDigest(selected)
+    : null;
+  const requirementsArtifact =
+    requirements === null ? null : exactJsonArtifactDigest(requirements);
+
   const selectedDescriptorRef = selected
     ? {
         descriptorType: selected.descriptorType ?? null,
         agentId: selected.identity?.agentId ?? null,
         capabilityId: selected.capability?.id ?? null,
         capabilityName: selected.capability?.name ?? null,
-        descriptorCanonicalSha256: sha256CanonicalJson(selected),
-        requirementsCanonicalSha256:
-          requirements === null ? null : sha256CanonicalJson(requirements),
+        descriptorArtifactSha256: descriptorArtifact.sha256,
+        descriptorArtifactByteLength: descriptorArtifact.byteLength,
+        requirementsArtifactSha256: requirementsArtifact?.sha256 ?? null,
+        requirementsArtifactByteLength: requirementsArtifact?.byteLength ?? null,
       }
     : null;
 
   let frozenIdentity = null;
+  let verifiedAttempt = null;
   if (selected && payloadPresent) {
     frozenIdentity = assertSubmittedRequestIdentity({
       selectedDescriptor: selected,
       requestPayload,
+      requestPayloadBytes,
       submittedRequestIdentity,
+    });
+    verifiedAttempt = assertAttemptCommitment({
+      submittedRequestIdentity,
+      observationManifestSha256: packVerification.manifestCanonicalSha256,
     });
   }
 
@@ -115,6 +132,7 @@ export function buildShadowRequest({
         derivation: packVerification.derivation,
         externalAnchorStatus: packVerification.externalAnchorStatus,
         observationAuthenticity: packVerification.observationAuthenticity,
+        trustStateSemantics: "RECOMPUTED_BY_VERIFIER_NOT_PRODUCER_CLAIM",
       },
       provenance: provenance(
         PROVENANCE.LOCAL_DERIVED,
@@ -128,7 +146,7 @@ export function buildShadowRequest({
       provenance: selected
         ? provenance(
             PROVENANCE.LOCAL_DERIVED,
-            "selected by exact offering name and bound by canonical digest"
+            "selected by exact offering name and bound by exact local artifact-byte digest"
           )
         : provenance(
             PROVENANCE.UNKNOWN,
@@ -139,8 +157,8 @@ export function buildShadowRequest({
       status: requestStatus,
       decisionReasonCode,
       payloadPresent,
-      requestPayloadCanonicalSha256:
-        frozenIdentity?.commitment?.requestPayloadCanonicalSha256 ?? null,
+      requestPayloadArtifactSha256:
+        frozenIdentity?.commitment?.requestPayloadArtifactSha256 ?? null,
       submittedRequestIdentitySha256:
         frozenIdentity?.submittedRequestIdentitySha256 ?? null,
       admittedRequestIdentitySha256:
@@ -149,6 +167,11 @@ export function buildShadowRequest({
           : null,
       identityProfile:
         frozenIdentity?.profile ?? "workflow-observatory/request-identity/v0",
+      byteProfile:
+        frozenIdentity?.byteProfile ?? "exact-frozen-artifact-bytes/v0",
+      attemptId: verifiedAttempt?.attempt_id ?? null,
+      attemptCommitmentSha256:
+        verifiedAttempt?.attempt_commitment_sha256 ?? null,
       requirementsSchemaObserved: requirements !== null,
       schemaValidation,
       validationErrorCount,
@@ -156,7 +179,7 @@ export function buildShadowRequest({
       provenance: payloadPresent
         ? provenance(
             PROVENANCE.LOCAL_DERIVED,
-            "candidate payload verified against a frozen local request identity; raw payload remains outside PayGod input"
+            "candidate payload verified against frozen exact-byte request artifacts; raw payload remains outside PayGod input"
           )
         : provenance(PROVENANCE.UNKNOWN, "no request payload supplied"),
     },
@@ -164,7 +187,7 @@ export function buildShadowRequest({
       rawDescriptorAdmittedToPayGod: false,
       rawRequestPayloadAdmittedToPayGod: false,
       reason:
-        "External ACP descriptor/request payload remain in the Observation Pack; PayGod receives digest-bound admission metadata only.",
+        "External ACP descriptor/request payload remain in the Observation Pack/request artifacts; PayGod receives digest-bound admission metadata only.",
     },
     authority: {
       acpJobCreationAuthorized: false,
