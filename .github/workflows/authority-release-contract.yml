@@ -213,7 +213,7 @@ jobs:
 
           jq -e '
             .result == "NO_BYPASS_OBSERVED_IN_PREFLIGHT" and
-            .claim_status == "PREFLIGHT_ONLY_CONTAINER_DIGEST_NOT_YET_FROZEN" and
+            .claim_status == "PREFLIGHT_ONLY_T0_ATTACK_SET_NOT_COMPLETE" and
             .a51_privileged_rpc_rejected == true and
             .a52_r_admin_reachable == false and
             .a53_node_managed_protected_signing_rejected == true and
