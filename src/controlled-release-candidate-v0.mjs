@@ -135,3 +135,57 @@ export function buildControlledReleaseCandidateV0({
     admittedRequestIdentitySha256: admittedIdentity,
   };
 }
+
+
+export function verifyControlledReleaseCandidateV0({
+  candidateBytes,
+  requestShadow,
+  transitionEnvelopeBytes,
+}) {
+  const input = Buffer.isBuffer(candidateBytes)
+    ? candidateBytes
+    : Buffer.from(candidateBytes);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(input.toString("utf8"));
+  } catch {
+    authorityFail(
+      "RELEASE_CANDIDATE_JSON_INVALID",
+      "release candidate is not valid JSON"
+    );
+  }
+
+  if (parsed?.kind !== CONTROLLED_RELEASE_CANDIDATE_KIND) {
+    authorityFail(
+      "RELEASE_CANDIDATE_KIND_MISMATCH",
+      "release candidate kind does not match v0"
+    );
+  }
+  if (parsed?.profile !== CONTROLLED_RELEASE_CANDIDATE_PROFILE) {
+    authorityFail(
+      "RELEASE_CANDIDATE_PROFILE_MISMATCH",
+      "release candidate profile does not match v0"
+    );
+  }
+
+  const expected = buildControlledReleaseCandidateV0({
+    requestShadow,
+    transitionEnvelopeBytes,
+  });
+
+  if (!expected.bytes.equals(input)) {
+    authorityFail(
+      "RELEASE_CANDIDATE_DERIVATION_MISMATCH",
+      "release candidate bytes are not the exact v0 derivation of the admitted request and frozen transition envelope"
+    );
+  }
+
+  return {
+    status: "VERIFIED",
+    candidate: expected.candidate,
+    bytes: expected.bytes,
+    transitionCommitment: expected.transitionCommitment,
+    admittedRequestIdentitySha256: expected.admittedRequestIdentitySha256,
+  };
+}
