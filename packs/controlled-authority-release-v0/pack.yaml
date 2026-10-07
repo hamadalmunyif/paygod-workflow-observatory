@@ -1,0 +1,56 @@
+api_version: "paygod/v1"
+kind: Pack
+metadata:
+  name: "controlled-authority-release-v0"
+  version: "0.1.0"
+  description: "Local-only controlled harness release decision. It does not authorize ACP or public-chain execution."
+  maintainer: "internal"
+  tags: ["controlled-harness", "release", "local-only"]
+
+spec:
+  policy:
+    rules:
+      - name: "deny-wrong-kind"
+        condition: "input.kind != 'paygod-controlled-release-candidate'"
+        decision: "deny"
+        reason: "Release candidate kind is not the frozen controlled-harness kind."
+
+      - name: "deny-wrong-profile"
+        condition: "input.profile != 'controlled-harness/release-candidate/v0'"
+        decision: "deny"
+        reason: "Release candidate profile is not v0."
+
+      - name: "deny-request-not-admitted"
+        condition: "input.request.status != 'CANDIDATE_LOCAL_VALIDATED' or input.request.schema_validation != 'LOCAL_VALIDATED' or not input.request.admitted_request_identity_sha256"
+        decision: "deny"
+        reason: "Request is not locally admitted under the frozen request-identity path."
+
+      - name: "deny-request-transition-mismatch"
+        condition: "input.request.admitted_request_identity_sha256 != input.transition.request_identity_sha256"
+        decision: "deny"
+        reason: "Transition is not bound to the admitted request identity."
+
+      - name: "deny-nonlocal-system"
+        condition: "input.transition.system != 'evm' or input.transition.chain_id != 31337"
+        decision: "deny"
+        reason: "Controlled release v0 is restricted to the local EVM harness chain."
+
+      - name: "deny-wrong-domain"
+        condition: "input.authority.enforcement_domain != 'controlled-harness/t0-v0'"
+        decision: "deny"
+        reason: "Enforcement domain is outside the frozen controlled harness."
+
+      - name: "deny-external-authority"
+        condition: "input.authority.local_only != true or input.authority.external_execution_authorized != false"
+        decision: "deny"
+        reason: "Controlled release v0 must remain local-only with external execution unauthorized."
+
+      - name: "deny-incomplete-transition"
+        condition: "not input.transition.transition_commitment or not input.transition.execution_account or not input.transition.target or not input.transition.calldata_sha256 or not input.transition.payload.recipient or not input.transition.payload.payload_sha256"
+        decision: "deny"
+        reason: "Transition commitment or one of the declared enforcement-surface bindings is missing."
+
+      - name: "controlled-local-release"
+        condition: "input.request.status == 'CANDIDATE_LOCAL_VALIDATED' and input.request.schema_validation == 'LOCAL_VALIDATED' and input.request.admitted_request_identity_sha256 == input.transition.request_identity_sha256 and input.transition.system == 'evm' and input.transition.chain_id == 31337 and input.authority.enforcement_domain == 'controlled-harness/t0-v0' and input.authority.local_only == true and input.authority.external_execution_authorized == false"
+        decision: "allow"
+        reason: "Controlled local transition is eligible for Warrant v0 issuance within T0 only."
