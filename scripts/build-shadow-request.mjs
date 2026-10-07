@@ -35,8 +35,10 @@ const packVerification = verifyObservationPack({
   manifest,
 });
 
-const rawRequest = (process.env.REQUEST_JSON ?? "").trim();
-const requestPayload = rawRequest ? JSON.parse(rawRequest) : null;
+const rawRequest = process.env.REQUEST_JSON ?? "";
+const requestPayload = rawRequest.trim() ? JSON.parse(rawRequest) : null;
+const requestPayloadBytes =
+  requestPayload === null ? null : Buffer.from(rawRequest, "utf8");
 const submittedRequestIdentity = requestIdentityPath
   ? await fs.readFile(requestIdentityPath, "utf8").then(JSON.parse)
   : null;
@@ -47,6 +49,7 @@ const result = buildShadowRequest({
   packVerification,
   offeringName,
   requestPayload,
+  requestPayloadBytes,
   submittedRequestIdentity,
 });
 
@@ -59,4 +62,5 @@ console.log(`Descriptor present: ${result.workflow.descriptorPresent}`);
 console.log(`Payload present: ${result.request.payloadPresent}`);
 console.log(`Observation pack: ${result.source.packVerification.status}`);
 console.log(`External manifest anchor: ${result.source.packVerification.externalAnchorStatus}`);
+console.log(`Attempt id: ${result.request.attemptId ?? "none"}`);
 console.log("ACP execution authority: false");

@@ -65,7 +65,26 @@ jobs:
           if (matrix.sourceObservation.observationAuthenticity !== 'NOT_PROVEN') {
             throw new Error('Observation authenticity must remain NOT_PROVEN');
           }
-          console.log('PASS: Witness 002b adversarial matrix closed with expected reason codes.');
+          const requiredPrecedence = [
+            '002b-14-multifault-pack-before-request',
+            '002b-15-multifault-contract-before-request',
+            '002b-16-multifault-descriptor-before-request',
+            '002b-17-multifault-request-before-schema-result',
+          ];
+          for (const id of requiredPrecedence) {
+            const row = matrix.cases.find((item) => item.id === id);
+            if (!row?.passed) throw new Error(`Missing or failed precedence case: ${id}`);
+          }
+          const trustDerivation = matrix.cases.find(
+            (row) => row.id === '002b-18-producer-trust-claim-ignored'
+          );
+          if (trustDerivation?.observedCode !== 'VERIFIER_DERIVED_UNANCHORED') {
+            throw new Error('Verifier-derived trust state was not preserved');
+          }
+          if (matrix.attemptSemantics?.releaseNoncePresent !== false) {
+            throw new Error('release_nonce must remain absent before Witness 005');
+          }
+          console.log('PASS: Witness 002b adversarial matrix closed with frozen precedence and trust semantics.');
           NODE
 
       - name: Upload Witness 002b artifact

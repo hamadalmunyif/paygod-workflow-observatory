@@ -135,3 +135,23 @@ test("matching external manifest anchor upgrades only anchor status, not authent
   assert.equal(result.externalAnchorStatus, "MATCHED");
   assert.equal(result.observationAuthenticity, "NOT_PROVEN");
 });
+
+
+test("producer trust claims cannot upgrade verifier-derived trust state", async () => {
+  const pack = await baselinePack();
+  const claimedManifest = structuredClone(pack.manifest);
+  claimedManifest.trust = {
+    ...(claimedManifest.trust ?? {}),
+    externalAnchorStatus: "MATCHED",
+    observationAuthenticity: "PROVEN",
+  };
+
+  const result = verifyObservationPack({
+    rawBytes: pack.rawBytes,
+    normalized: pack.normalized,
+    manifest: claimedManifest,
+  });
+
+  assert.equal(result.externalAnchorStatus, "UNANCHORED");
+  assert.equal(result.observationAuthenticity, "NOT_PROVEN");
+});

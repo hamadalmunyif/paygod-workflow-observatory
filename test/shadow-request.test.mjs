@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { normalizeBrowse } from "../src/normalize-browse.mjs";
 import { buildShadowRequest } from "../src/build-shadow-request.mjs";
-import { buildRequestIdentityCommitment } from "../src/request-identity.mjs";
+import {
+  buildAttemptCommitment,
+  buildRequestIdentityCommitment,
+} from "../src/request-identity.mjs";
 
 async function descriptorSet() {
   const payload = JSON.parse(
@@ -31,11 +34,28 @@ function selectedOffering(set, name) {
   );
 }
 
-function frozenIdentity(set, name, payload) {
-  return buildRequestIdentityCommitment({
+function frozenIdentity(
+  set,
+  name,
+  payload,
+  {
+    requestPayloadBytes = Buffer.from(JSON.stringify(payload), "utf8"),
+    attemptId = "test-attempt-001",
+  } = {}
+) {
+  const identity = buildRequestIdentityCommitment({
     selectedDescriptor: selectedOffering(set, name),
     requestPayload: payload,
+    requestPayloadBytes,
   });
+  return {
+    ...identity,
+    attempt: buildAttemptCommitment({
+      attemptId,
+      requestIdentitySha256: identity.submittedRequestIdentitySha256,
+      observationManifestSha256: packVerification.manifestCanonicalSha256,
+    }),
+  };
 }
 
 test("projection refuses unverified observation packs", async () => {
@@ -81,7 +101,7 @@ test("observed offering without payload is flagged with stable reason code", asy
   assert.equal(result.request.schemaValidation, "NOT_RUN");
 });
 
-test("supplied payload is locally validated against a frozen request identity", async () => {
+test("supplied payload is locally validated against frozen byte artifacts", async () => {
   const set = await descriptorSet();
   const payload = { company: "ABC" };
   const identity = frozenIdentity(set, "Company Risk Analysis", payload);
@@ -103,6 +123,7 @@ test("supplied payload is locally validated against a frozen request identity", 
     result.request.submittedRequestIdentitySha256,
     result.request.admittedRequestIdentitySha256
   );
+  assert.equal(result.request.attemptId, "test-attempt-001");
   assert.equal(result.authority.acpJobCreationAuthorized, false);
 });
 
@@ -121,6 +142,68 @@ test("payload mutation after identity freeze fails closed", async () => {
         submittedRequestIdentity: identity,
       }),
     (err) => err.code === "REQUEST_PAYLOAD_DIGEST_MISMATCH"
+  );
+});
+
+test("same JSON meaning with different submitted bytes has a different request identity", () => {
+  const set = congressionalSet();
+  const descriptor = selectedOffering(set, "getCongressTrades");
+  const payload = { limit: 5 };
+
+  const compact = buildRequestIdentityCommitment({
+    selectedDescriptor: descriptor,
+    requestPayload: payload,
+    requestPayloadBytes: Buffer.from('{"limit":5}', "utf8"),
+  });
+  const spaced = buildRequestIdentityCommitment({
+    selectedDescriptor: descriptor,
+    requestPayload: payload,
+    requestPayloadBytes: Buffer.from('{ "limit": 5 }', "utf8"),
+  });
+
+  assert.notEqual(
+    compact.commitment.requestPayloadArtifactSha256,
+    spaced.commitment.requestPayloadArtifactSha256
+  );
+  assert.notEqual(
+    compact.submittedRequestIdentitySha256,
+    spaced.submittedRequestIdentitySha256
+  );
+});
+
+test("identical requests may share request identity while attempts remain distinct", () => {
+  const set = congressionalSet();
+  const descriptor = selectedOffering(set, "getCongressTrades");
+  const payload = { limit: 5 };
+  const identity = buildRequestIdentityCommitment({
+    selectedDescriptor: descriptor,
+    requestPayload: payload,
+    requestPayloadBytes: Buffer.from('{"limit":5}', "utf8"),
+  });
+
+  const attemptA = buildAttemptCommitment({
+    attemptId: "attempt-a",
+    requestIdentitySha256: identity.submittedRequestIdentitySha256,
+    observationManifestSha256: packVerification.manifestCanonicalSha256,
+  });
+  const attemptB = buildAttemptCommitment({
+    attemptId: "attempt-b",
+    requestIdentitySha256: identity.submittedRequestIdentitySha256,
+    observationManifestSha256: packVerification.manifestCanonicalSha256,
+  });
+
+  assert.equal(
+    attemptA.request_identity_sha256,
+    attemptB.request_identity_sha256
+  );
+  assert.notEqual(attemptA.attempt_id, attemptB.attempt_id);
+  assert.notEqual(
+    attemptA.attempt_commitment_sha256,
+    attemptB.attempt_commitment_sha256
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(attemptA, "release_nonce"),
+    false
   );
 });
 
@@ -165,7 +248,7 @@ test("PayGod shadow envelope excludes raw descriptor floats and binds them by di
     "getCongressTrades"
   );
   assert.match(
-    result.workflow.selectedDescriptorRef.descriptorCanonicalSha256,
+    result.workflow.selectedDescriptorRef.descriptorArtifactSha256,
     /^[a-f0-9]{64}$/
   );
   assert.equal(result.evidenceAdmission.rawDescriptorAdmittedToPayGod, false);
@@ -187,7 +270,7 @@ test("raw request payload is not embedded in PayGod shadow input", async () => {
   });
 
   assert.equal("payload" in result.request, false);
-  assert.match(result.request.requestPayloadCanonicalSha256, /^[a-f0-9]{64}$/);
+  assert.match(result.request.requestPayloadArtifactSha256, /^[a-f0-9]{64}$/);
   assert.equal(result.evidenceAdmission.rawRequestPayloadAdmittedToPayGod, false);
   assert.equal(JSON.stringify(result).includes("0.125"), false);
 });
@@ -297,16 +380,59 @@ test("extra properties follow the observed schema rather than invented policy", 
   assert.equal(result.request.decisionReasonCode, "ADMISSION_LOCAL_VALIDATED");
 });
 
-test("request identity v0 contains no nonce", () => {
+test("contract mismatch outranks payload mismatch", () => {
   const set = congressionalSet();
   const identity = frozenIdentity(set, "getCongressTrades", { limit: 5 });
-  assert.equal(identity.correlationNonce, null);
+  const changed = structuredClone(set);
+  changed.descriptors[0].requestContract.requirements.properties.limit.maximum = 999;
+
+  assert.throws(
+    () =>
+      buildShadowRequest({
+        descriptorSet: changed,
+        observationManifest: manifest,
+        packVerification,
+        offeringName: "getCongressTrades",
+        requestPayload: { limit: 6 },
+        submittedRequestIdentity: identity,
+      }),
+    (err) => err.code === "REQUEST_REQUIREMENTS_DIGEST_MISMATCH"
+  );
+});
+
+test("descriptor mismatch outranks payload mismatch", () => {
+  const set = congressionalSet();
+  const identity = frozenIdentity(set, "getCongressTrades", { limit: 5 });
+  const changed = structuredClone(set);
+  changed.descriptors[0].capability.description = "changed after freeze";
+
+  assert.throws(
+    () =>
+      buildShadowRequest({
+        descriptorSet: changed,
+        observationManifest: manifest,
+        packVerification,
+        offeringName: "getCongressTrades",
+        requestPayload: { limit: 6 },
+        submittedRequestIdentity: identity,
+      }),
+    (err) => err.code === "REQUEST_DESCRIPTOR_DIGEST_MISMATCH"
+  );
+});
+
+test("request identity v0 contains no release nonce", () => {
+  const set = congressionalSet();
+  const identity = frozenIdentity(set, "getCongressTrades", { limit: 5 });
   assert.equal(
     identity.commitment.schema,
     "workflow-observatory/request-identity/v0"
   );
   assert.equal(
-    Object.prototype.hasOwnProperty.call(identity.commitment, "nonce"),
+    Object.prototype.hasOwnProperty.call(identity.commitment, "release_nonce"),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(identity.attempt, "release_nonce"),
     false
   );
 });
