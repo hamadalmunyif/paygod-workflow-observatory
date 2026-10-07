@@ -29,13 +29,6 @@ function expectCode(fn, code) {
   );
 }
 
-async function expectCodeAsync(fn, code) {
-  await assert.rejects(
-    fn,
-    (err) => err instanceof AuthorityError && err.code === code
-  );
-}
-
 const requestIdentitySha256 = "11".repeat(32);
 const calldataSha256 = "22".repeat(32);
 const payloadSha256 = "33".repeat(32);
@@ -186,18 +179,6 @@ test("warrant verifier rejects pretty-body representation before authority check
     issuerKeyId,
   });
   const pretty = Buffer.from(JSON.stringify(body.body, null, 2), "utf8");
-
-  expectCode(
-    () => buildWarrantBodyV0({
-      transitionCommitment: body.body.transition_commitment,
-      notBefore: body.body.not_before,
-      expiresAt: body.body.expires_at,
-      nonce: body.body.nonce,
-      issuerKeyId: body.body.issuer_key_id,
-      enforcementDomain: body.body.enforcement_domain,
-    }) && parseExactTransitionEnvelopeV0,
-    "__NEVER__"
-  );
 
   // Import-free assertion of the body parser through signing: the exact profile
   // check occurs before any signature can be produced.
