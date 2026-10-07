@@ -187,6 +187,7 @@ Requires all of:
 
 - canonical eligible PayGod decision;
 - valid issuance;
+- matching S0 `ISSUED` registration for the exact warrant-body digest;
 - valid Warrant;
 - E2 payload staged;
 - E1 transaction authorized;
