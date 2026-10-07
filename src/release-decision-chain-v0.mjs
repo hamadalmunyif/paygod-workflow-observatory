@@ -72,7 +72,7 @@ function parseReceipt(bytes, codePrefix) {
   };
 }
 
-function verifyPortableResult(result, codePrefix, profile) {
+function verifyPortableResult(result, codePrefix, profile, expectedReceiptSha256) {
   if (!result || typeof result !== "object") {
     authorityFail(codePrefix + "_VERIFICATION_MISSING", codePrefix + " verification result is missing");
   }
@@ -91,13 +91,53 @@ function verifyPortableResult(result, codePrefix, profile) {
       codePrefix + " verifier version differs from the frozen profile"
     );
   }
-  if (profile.paygodReceiptIssuerAuthenticityRequired === false) {
-    if (result?.verification?.issuer_authenticity !== "not_verified") {
+  if (profile.paygodReceiptIssuerAuthenticityRequired === true) {
+    if (result?.verification?.issuer_authenticity !== "verified") {
       authorityFail(
-        codePrefix + "_AUTHENTICITY_STATE_MISMATCH",
-        codePrefix + " issuer authenticity state must remain not_verified in v0"
+        codePrefix + "_AUTHENTICITY_NOT_VERIFIED",
+        codePrefix + " receipt issuer authenticity must be verified"
       );
     }
+    if (
+      result?.issuer_signature?.present !== true ||
+      result?.issuer_signature?.key_trusted !== true ||
+      result?.issuer_signature?.signature_valid !== true ||
+      result?.issuer_signature?.receipt_sha256_matches !== true
+    ) {
+      authorityFail(
+        codePrefix + "_ISSUER_SIGNATURE_INVALID",
+        codePrefix + " receipt signature must be present, trusted, valid, and bound to exact receipt bytes"
+      );
+    }
+    if (
+      result?.issuer_signature?.profile !== profile.paygodReceiptSignatureProfile ||
+      result?.issuer_signature?.algorithm !== "Ed25519"
+    ) {
+      authorityFail(
+        codePrefix + "_ISSUER_SIGNATURE_PROFILE_MISMATCH",
+        codePrefix + " receipt signature profile/algorithm differs from frozen profile"
+      );
+    }
+    if (
+      typeof result?.issuer_signature?.key_id !== "string" ||
+      result.issuer_signature.key_id.length === 0
+    ) {
+      authorityFail(
+        codePrefix + "_ISSUER_KEY_ID_REQUIRED",
+        codePrefix + " verified decision issuer key id is required"
+      );
+    }
+    if (result.receipt_sha256 !== expectedReceiptSha256) {
+      authorityFail(
+        codePrefix + "_VERIFIED_RECEIPT_DIGEST_MISMATCH",
+        codePrefix + " verifier result is not bound to the exact receipt bytes"
+      );
+    }
+  } else {
+    authorityFail(
+      codePrefix + "_AUTHENTICITY_PROFILE_NOT_REQUIRED",
+      "authenticated decision-chain v0 requires receipt issuer authenticity"
+    );
   }
   if (profile.paygodDecisionReplayPerformed === false) {
     if (result?.verification?.replay !== "not_performed") {
@@ -157,7 +197,12 @@ export function verifyAdmissionDecisionV0({
 
   const d1 = parseAdmissionReceiptV0(admissionReceiptBytes);
   verifyPackContract(d1.receipt, profile.admissionPack, "DECISION_CHAIN_D1");
-  verifyPortableResult(admissionVerification, "DECISION_CHAIN_D1", profile);
+  verifyPortableResult(
+    admissionVerification,
+    "DECISION_CHAIN_D1",
+    profile,
+    d1.receiptSha256
+  );
 
   if (d1.inputCanonicalHash !== requestShadowCanonicalHash) {
     authorityFail(
@@ -178,6 +223,7 @@ export function verifyAdmissionDecisionV0({
     integrity: admissionVerification.verification.integrity,
     issuerAuthenticity: admissionVerification.verification.issuer_authenticity,
     replay: admissionVerification.verification.replay,
+    decisionIssuerKeyId: admissionVerification.issuer_signature.key_id,
   };
 }
 
@@ -266,7 +312,19 @@ export function verifyReleaseDecisionChainV0({
 
   const d2 = parseReceipt(releaseReceiptBytes, "DECISION_CHAIN_D2");
   verifyPackContract(d2.receipt, profile.pack, "DECISION_CHAIN_D2");
-  verifyPortableResult(releaseVerification, "DECISION_CHAIN_D2", profile);
+  verifyPortableResult(
+    releaseVerification,
+    "DECISION_CHAIN_D2",
+    profile,
+    d2.receiptSha256
+  );
+
+  if (d1.decisionIssuerKeyId !== releaseVerification.issuer_signature.key_id) {
+    authorityFail(
+      "DECISION_CHAIN_DECISION_ISSUER_EPOCH_MISMATCH",
+      "D1 and D2 receipts must authenticate to the same controlled decision issuer key for the harness epoch"
+    );
+  }
 
   if (d2.receipt.input.canonical_hash !== releaseCandidateCanonicalHash) {
     authorityFail(
@@ -287,6 +345,7 @@ export function verifyReleaseDecisionChainV0({
       integrity: d1.integrity,
       issuerAuthenticity: d1.issuerAuthenticity,
       replay: d1.replay,
+      decisionIssuerKeyId: d1.decisionIssuerKeyId,
     },
     d2: {
       receiptSha256: d2.receiptSha256,
@@ -297,6 +356,7 @@ export function verifyReleaseDecisionChainV0({
       integrity: releaseVerification.verification.integrity,
       issuerAuthenticity: releaseVerification.verification.issuer_authenticity,
       replay: releaseVerification.verification.replay,
+      decisionIssuerKeyId: releaseVerification.issuer_signature.key_id,
     },
     requestIdentity: candidate.admittedRequestIdentitySha256,
     attemptId: candidate.candidate.request.attempt_id,
