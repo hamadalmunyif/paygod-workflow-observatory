@@ -84,9 +84,12 @@ export class AuthorityStateStoreV0 {
     this.db = db;
     this.now = now;
 
+    // Install the bounded lock wait before any PRAGMA that may itself
+    // require a schema/database lock. This makes concurrent S0 openers
+    // contend through the configured SQLite wait instead of failing early.
+    this.db.exec("PRAGMA busy_timeout=5000");
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("PRAGMA synchronous=FULL");
-    this.db.exec("PRAGMA busy_timeout=5000");
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS authority_state (" +
         "issuer_key_id TEXT NOT NULL," +
