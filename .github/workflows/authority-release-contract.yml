@@ -926,19 +926,32 @@ jobs:
         run: |
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
+          import crypto from 'node:crypto';
 
-          const preflight = JSON.parse(
-            fs.readFileSync('out/release/gate-zero-client/preflight.json', 'utf8')
-          );
-          const s0 = JSON.parse(
-            fs.readFileSync('out/release/gate-zero-client/s0-replay-concurrency.json', 'utf8')
-          );
-          const a9 = JSON.parse(
-            fs.readFileSync('out/release/gate-zero-client/a9-payload-substitution.json', 'utf8')
-          );
-          const e1 = JSON.parse(
-            fs.readFileSync('out/release/e1/e1-execution.json', 'utf8')
-          );
+          const readJson = (path) => JSON.parse(fs.readFileSync(path, 'utf8'));
+          const sha256File = (path) =>
+            crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
+
+          const paths = {
+            preflight: 'out/release/gate-zero-client/preflight.json',
+            s0: 'out/release/gate-zero-client/s0-replay-concurrency.json',
+            a9: 'out/release/gate-zero-client/a9-payload-substitution.json',
+            a43: 'out/release/gate-zero-client/a43-stage-replacement.json',
+            a13: 'out/release/gate-zero-client/a13-consumed-replay.json',
+            e1: 'out/release/e1/e1-execution.json',
+            rpcAudit: 'out/release/local-evm/r-client-audit.jsonl',
+          };
+
+          const preflight = readJson(paths.preflight);
+          const s0 = readJson(paths.s0);
+          const a9 = readJson(paths.a9);
+          const a43 = readJson(paths.a43);
+          const a13 = readJson(paths.a13);
+          const e1 = readJson(paths.e1);
+          const profile = readJson('contracts/controlled-release-profile-v0.json');
+          const clientImage = fs
+            .readFileSync('out/release/local-evm/client-container-image.txt', 'utf8')
+            .trim();
 
           const required = [
             preflight.a51_privileged_rpc_rejected === true,
@@ -952,9 +965,16 @@ jobs:
             preflight.s0_reachability?.authority_state_db_mounted === false,
             preflight.s0_reachability?.client_s0_admin_api_exposed === false,
             preflight.s0_reachability?.client_s0_reset_path_observed === false,
+            preflight.config_reachability?.warrant_trust_store_mounted === false,
+            preflight.config_reachability?.caller_trust_configuration_input_exposed === false,
+            preflight.config_reachability?.docker_socket_mounted === false,
+            preflight.config_reachability?.client_script_read_only === true,
+            preflight.config_reachability?.enforcer_reconfiguration_rpc_attempts_rejected === true,
             s0.a14_concurrent_double_use?.result === 'REJECTED_AS_EXPECTED',
             s0.a15_restart_replay?.result === 'REJECTED_AS_EXPECTED',
             a9.result === 'REJECTED_AS_EXPECTED',
+            a43.result === 'REJECTED_AS_EXPECTED',
+            a13.result === 'REJECTED_AS_EXPECTED',
             e1.status === 'TX_EXECUTED',
             e1.signatureReturnedToCaller === false,
           ];
@@ -962,35 +982,83 @@ jobs:
             throw new Error('T0 E1 witness prerequisites are incomplete');
           }
 
+          const evidence = {};
+          for (const [name, path] of Object.entries(paths)) {
+            evidence[name] = {
+              path,
+              sha256: sha256File(path),
+            };
+          }
+
+          const record = (id, expected, observed, evidenceType, evidenceName) => ({
+            id,
+            expected,
+            observed,
+            status: 'REJECTED_AS_EXPECTED',
+            evidence_type: evidenceType,
+            evidence: evidenceName ? evidence[evidenceName] : null,
+          });
+
           const result = {
             schema: 'workflow-observatory/gate-zero-t0-e1-witness/v0',
             result: 'NO_BYPASS_OBSERVED_UNDER_T0_E1_SURFACE',
             claim_status: 'BOUNDED_E1_ONLY_E2_RELEASE_NOT_YET_TESTED',
             enforcement_surface: 'E1_TRANSACTION',
             threat_model: 'T0',
-            attacks: {
-              A51: 'REJECTED_AS_EXPECTED',
-              A52: 'REJECTED_AS_EXPECTED',
-              A53_A1: 'REJECTED_AS_EXPECTED',
-              A54_A2_A17: 'REJECTED_AS_EXPECTED',
-              A9: 'REJECTED_AS_EXPECTED',
-              A14: 'REJECTED_AS_EXPECTED',
-              A15: 'REJECTED_AS_EXPECTED',
-              KEY_REACHABILITY: 'REJECTED_AS_EXPECTED',
-              S0_REACHABILITY_A16: 'REJECTED_AS_EXPECTED',
-              A55: 'UNIT_OR_INTEGRATION_PASS',
+            harness_commit: process.env.GITHUB_SHA,
+            workflow_run_id: process.env.GITHUB_RUN_ID,
+            workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+            component_pins: {
+              client_image: clientImage,
+              foundry_archive_sha256: '6c66ffcc55fa4249197721baa3098bc208014ea1d8aa04b2ed50ac6bccffb226',
+              solc_linux_amd64_sha256: 'f3e987dc6ecebd4bd350c48edcbc320b46cf9e3109bd3fc3d88f1acaf4c428f7',
+              paygod_kernel_commit: profile.paygodKernelCommit,
+              controlled_release_pack_digest_sha256: profile.pack.digestSha256,
             },
-            t1_host_rollback_tested: false,
-            t1_status: 'DEFERRED_PENDING_AP2_PASS_B',
-            positive_path_status: e1.status,
-            protected_execution_account: e1.protectedExecutionAccount,
-            protected_transaction_hash: e1.transactionHash,
-            tx_evidence_sha256: e1.txEvidenceSha256,
-            e2_release_tested: false,
-            provider_observation_tested: false,
-            two_surface_conformance_tested: false,
-            conditional_release_authority_claimed: false,
+            attack_records: [
+              record('T0-E1-01/A51', 'forbidden RPC rejected and not forwarded', 'rejected; audit forwarded=false', 'C_BOUNDARY_RUNTIME_PASS', 'preflight'),
+              record('T0-E1-02/A52', 'R-admin unreachable from C', 'unreachable', 'C_BOUNDARY_RUNTIME_PASS', 'preflight'),
+              record('T0-E1-03/A1/A53', 'no protected node-managed signing', 'signing methods rejected and not forwarded', 'C_BOUNDARY_RUNTIME_PASS', 'preflight'),
+              record('T0-E1-04/A0/A2/A17/A54', 'alternate signer cannot create protected consequence', 'raw tx reached chain, sender differed, receipt reverted, state unchanged', 'C_BOUNDARY_RUNTIME_PASS', 'preflight'),
+              record('T0-E1-05/KEY-REACHABILITY', 'no key material or equivalent signing use exposed to C', 'no key env/file/mount or generic protected signing path observed', 'C_BOUNDARY_RUNTIME_PASS', 'preflight'),
+              record('T0-S0-01/A16/A21', 'no C-accessible S0 mutation/reset path', 'no DB mount/env/admin/reset RPC path observed', 'C_BOUNDARY_RUNTIME_PASS', 'preflight'),
+              record('T0-E2-01/A9', 'valid Warrant with changed payload rejected', a9.observed_code, 'WORKFLOW_RUNTIME_PASS', 'a9'),
+              record('T0-E2-02/A43', 'second/replacement staging rejected and bytes preserved', a43.observed_code, 'WORKFLOW_RUNTIME_PASS', 'a43'),
+              record('T0-REPLAY-01/A13', 'consumed Warrant replay rejected', a13.observed_code, 'WORKFLOW_RUNTIME_PASS', 'a13'),
+              record('T0-REPLAY-02/A15', 'restart replay rejected', s0.a15_restart_replay.observed_code, 'WORKFLOW_RUNTIME_PASS', 's0'),
+              record('T0-REPLAY-03/A14', 'at most one concurrent reservation succeeds', 'one TX_RESERVED; one deterministic state rejection', 'WORKFLOW_RUNTIME_PASS', 's0'),
+              record('T0-CONFIG-01/A22/A56', 'C cannot substitute Warrant trust configuration', 'no trust file/input/control path exposed to C', 'C_BOUNDARY_RUNTIME_PASS', 'preflight'),
+              record('T0-CONFIG-02/A21', 'C cannot replace/reconfigure enforcers', 'no docker socket/writable enforcer/config RPC path observed', 'C_BOUNDARY_RUNTIME_PASS', 'preflight'),
+            ],
+            supporting_test_evidence: {
+              A55: {
+                status: 'UNIT_OR_INTEGRATION_PASS',
+                source: 'test/e1-transaction-gate-v0.test.mjs',
+                note: 'caller-supplied nonce/gas/fee/signature metadata is rejected by E1',
+              },
+            },
+            positive_path: {
+              status: e1.status,
+              protected_execution_account: e1.protectedExecutionAccount,
+              protected_transaction_hash: e1.transactionHash,
+              tx_evidence_sha256: e1.txEvidenceSha256,
+              evidence: evidence.e1,
+            },
+            evidence,
+            deferred_or_unclaimed: {
+              t1_host_root_rollback_tested: false,
+              t1_status: 'DEFERRED_PENDING_AP2_PASS_B',
+              e2_release_tested: false,
+              provider_observation_tested: false,
+              two_surface_conformance_tested: false,
+              attacks_A18_A19_A20_A26_A27_A28_live_provider_tested: false,
+              conditional_release_authority_claimed: false,
+            },
           };
+
+          if (!result.harness_commit || !result.workflow_run_id) {
+            throw new Error('GitHub witness identity is missing');
+          }
 
           fs.writeFileSync(
             'out/release/gate-zero-client/t0-e1-witness.json',
