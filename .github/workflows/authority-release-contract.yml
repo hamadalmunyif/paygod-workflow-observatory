@@ -60,6 +60,7 @@ jobs:
           echo "6c66ffcc55fa4249197721baa3098bc208014ea1d8aa04b2ed50ac6bccffb226  $FOUNDRY_ARCHIVE" | sha256sum -c -
           tar -xzf "$FOUNDRY_ARCHIVE" -C "$FOUNDRY_DIR"
           echo "$FOUNDRY_DIR" >> "$GITHUB_PATH"
+          echo "FOUNDRY_DIR=$FOUNDRY_DIR" >> "$GITHUB_ENV"
 
           curl -L --fail --retry 3 \
             -o "$SOLC_BIN" \
@@ -164,6 +165,53 @@ jobs:
             --calldata-hex out/release/local-evm/calldata.hex \
             --output out/release/transition-envelope.json \
             --proposal-output out/release/local-evm/transaction-proposal.json
+
+      - name: Start fail-closed R-client proxy
+        env:
+          RPC_UPSTREAM_URL: "http://127.0.0.1:18545"
+          RPC_PROXY_HOST: "0.0.0.0"
+          RPC_PROXY_PORT: "18546"
+          RPC_PROXY_AUDIT: "out/release/local-evm/r-client-audit.jsonl"
+        run: |
+          set -euo pipefail
+          node scripts/r-client-proxy-v0.mjs             > out/release/local-evm/r-client-proxy.log 2>&1 &
+          echo "$!" > out/release/local-evm/r-client-proxy.pid
+
+          for i in $(seq 1 30); do
+            if curl -fsS               -H 'content-type: application/json'               --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'               http://127.0.0.1:18546               | jq -e '.result == "0x7a69"' >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.2
+          done
+
+          curl -fsS             -H 'content-type: application/json'             --data '{"jsonrpc":"2.0","id":2,"method":"eth_chainId","params":[]}'             http://127.0.0.1:18546             | jq -e '.result == "0x7a69"' >/dev/null
+
+      - name: Run adversarial C transaction-surface preflight
+        env:
+          CLIENT_IMAGE: "node:22-bookworm-slim"
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/gate-zero-client
+
+          docker pull "$CLIENT_IMAGE" >/dev/null
+          CLIENT_REPO_DIGEST="$(docker image inspect             --format '{{index .RepoDigests 0}}' "$CLIENT_IMAGE")"
+          test -n "$CLIENT_REPO_DIGEST"
+          printf '%s\n' "$CLIENT_REPO_DIGEST"             > out/release/local-evm/client-container-image.txt
+
+          CALLDATA_HEX="$(tr -d '\n\r ' < out/release/local-evm/calldata.hex)"
+
+          docker run --rm             --add-host=harness-host:host-gateway             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/gate-zero-e1-client-v0.mjs,dst=/work/gate-zero-e1-client-v0.mjs,readonly"             --mount "type=bind,src=$GITHUB_WORKSPACE/out/release/gate-zero-client,dst=/work/out"             --mount "type=bind,src=$FOUNDRY_DIR/cast,dst=/tools/cast,readonly"             -e R_CLIENT_URL="http://harness-host:18546"             -e R_ADMIN_URL="http://harness-host:18545"             -e TARGET="$SURROGATE_ADDRESS"             -e PROTECTED_EXECUTION_ACCOUNT="$PROTECTED_EXECUTION_ACCOUNT"             -e CALLDATA_HEX="$CALLDATA_HEX"             -e GATE_ZERO_OUTPUT="/work/out/preflight.json"             "$CLIENT_IMAGE"             node /work/gate-zero-e1-client-v0.mjs
+
+          jq -e '
+            .result == "NO_BYPASS_OBSERVED_IN_PREFLIGHT" and
+            .claim_status == "PREFLIGHT_ONLY_CONTAINER_DIGEST_NOT_YET_FROZEN" and
+            .a51_privileged_rpc_rejected == true and
+            .a52_r_admin_reachable == false and
+            .a53_node_managed_protected_signing_rejected == true and
+            .a54_protected_consequence_observed == false and
+            .next_job_id_before == .next_job_id_after and
+            .raw_transaction_submission_available == true
+          ' out/release/gate-zero-client/preflight.json >/dev/null
 
       - name: Build controlled Release Candidate
         run: |
@@ -711,10 +759,13 @@ jobs:
           console.log(JSON.stringify(e1, null, 2));
           NODE
 
-      - name: Remove protected execution key and stop local Anvil
+      - name: Remove protected execution key and stop local rail
         if: always()
         run: |
           rm -f "$PROTECTED_EXECUTION_KEY_FILE"
+          if [ -f out/release/local-evm/r-client-proxy.pid ]; then
+            kill "$(cat out/release/local-evm/r-client-proxy.pid)" 2>/dev/null || true
+          fi
           if [ -f out/release/local-evm/anvil.pid ]; then
             kill "$(cat out/release/local-evm/anvil.pid)" 2>/dev/null || true
           fi
