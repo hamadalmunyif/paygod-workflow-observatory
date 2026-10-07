@@ -41,6 +41,39 @@ function requireProfilePack(pack, label) {
   );
 }
 
+function verifyDecisionAuthProfile(profile) {
+  if (profile.paygodReceiptIssuerAuthenticityRequired !== true) {
+    authorityFail(
+      "DECISION_CHAIN_AUTHENTICITY_PROFILE_INVALID",
+      "authenticated decision-chain v0 requires receipt issuer authenticity"
+    );
+  }
+  if (profile.paygodReceiptSignatureProfile !== "paygod-ed25519-receipt-v1") {
+    authorityFail(
+      "DECISION_CHAIN_SIGNATURE_PROFILE_MISMATCH",
+      "unexpected PayGod receipt signature profile"
+    );
+  }
+  if (profile.paygodReceiptTrustProfile !== "paygod-ed25519-trust-v1") {
+    authorityFail(
+      "DECISION_CHAIN_TRUST_PROFILE_MISMATCH",
+      "unexpected PayGod receipt trust profile"
+    );
+  }
+  if (profile.paygodDecisionIssuerKeyScope !== "ephemeral-controlled-harness-epoch") {
+    authorityFail(
+      "DECISION_CHAIN_ISSUER_SCOPE_MISMATCH",
+      "unexpected controlled decision issuer key scope"
+    );
+  }
+  if (profile.decisionChainRequiresSameIssuerKey !== true) {
+    authorityFail(
+      "DECISION_CHAIN_SAME_ISSUER_NOT_REQUIRED",
+      "D1 and D2 must require the same controlled decision issuer key"
+    );
+  }
+}
+
 function parseReceipt(bytes, codePrefix) {
   const input = asBuffer(bytes, codePrefix + " receipt");
   let receipt;
@@ -189,6 +222,7 @@ export function verifyAdmissionDecisionV0({
     );
   }
   requireProfilePack(profile.admissionPack, "admissionPack");
+  verifyDecisionAuthProfile(profile);
   requireSha256(
     requestShadowCanonicalHash,
     "DECISION_CHAIN_D1_CANONICAL_HASH_INVALID",
