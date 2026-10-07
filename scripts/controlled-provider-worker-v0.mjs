@@ -12,6 +12,8 @@ const outputDir =
 const expectedProvider = String(
   process.env.PROVIDER_IDENTITY ?? ""
 ).toLowerCase();
+const expectedContentType =
+  process.env.PROVIDER_CONTENT_TYPE ?? "requirement";
 
 if (!/^0x[0-9a-f]{40}$/.test(expectedProvider)) {
   throw new Error("PROVIDER_IDENTITY must be a lowercase EVM address");
@@ -80,6 +82,9 @@ const server = http.createServer(async (req, res) => {
   const expectedPayloadSha256 = String(
     header(req, "x-paygod-payload-sha256") ?? ""
   ).toLowerCase();
+  const payloadContentType = String(
+    header(req, "x-paygod-payload-content-type") ?? ""
+  );
 
   if (!/^[0-9a-f]{64}$/.test(transitionCommitment)) {
     return sendJson(res, 400, {
@@ -109,6 +114,12 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 400, {
       status: "REJECTED",
       code: "PROVIDER_PAYLOAD_DIGEST_INVALID",
+    });
+  }
+  if (payloadContentType !== expectedContentType) {
+    return sendJson(res, 400, {
+      status: "REJECTED",
+      code: "PROVIDER_PAYLOAD_CONTENT_TYPE_MISMATCH",
     });
   }
 
@@ -141,7 +152,7 @@ const server = http.createServer(async (req, res) => {
     observation_grade: "RUNTIME_OBSERVED",
     payload_sha256: observedPayloadSha256,
     payload_byte_length: payloadBytes.length,
-    content_type: "requirement",
+    content_type: payloadContentType,
     provider_identity: expectedProvider,
     transition_commitment: transitionCommitment,
     instance_id: instanceId,
