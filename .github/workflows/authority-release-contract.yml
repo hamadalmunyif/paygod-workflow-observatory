@@ -99,11 +99,12 @@ jobs:
           const fs = require('fs');
           const crypto = require('crypto');
 
+          const profile = JSON.parse(fs.readFileSync('contracts/controlled-release-profile-v0.json', 'utf8'));
           const validate = JSON.parse(fs.readFileSync('out/release/paygod-validate.json', 'utf8'));
           const receipt = JSON.parse(fs.readFileSync('out/release/paygod/receipt.json', 'utf8'));
           const verified = JSON.parse(fs.readFileSync('out/release/paygod-verification.json', 'utf8'));
           const candidate = JSON.parse(fs.readFileSync('out/release/release-candidate.json', 'utf8'));
-          const packBytes = fs.readFileSync('packs/controlled-authority-release-v0/pack.yaml');
+          const packBytes = fs.readFileSync(profile.pack.path + '/pack.yaml');
           const packSha = crypto.createHash('sha256').update(packBytes).digest('hex');
           const expectedPackSha = 'e4b94e20b6f93e899e9e93eaf2a9844c74483e1abbea88d13dbdc5033eabbca9';
 
@@ -144,11 +145,17 @@ jobs:
           ) {
             throw new Error('Candidate request/transition payload mismatch');
           }
-          if (candidate.transition?.chain_id !== 31337) {
-            throw new Error('Release candidate escaped local chain 31337');
+          if (candidate.transition?.chain_id !== profile.chainId) {
+            throw new Error('Release candidate escaped frozen local chain');
           }
-          if (candidate.authority?.external_execution_authorized !== false) {
-            throw new Error('Release candidate claims external execution authority');
+          if (candidate.authority?.enforcement_domain !== profile.enforcementDomain) {
+            throw new Error('Release candidate escaped frozen enforcement domain');
+          }
+          if (
+            candidate.authority?.external_execution_authorized !==
+            profile.externalExecutionAuthorized
+          ) {
+            throw new Error('Release candidate external execution authority mismatch');
           }
 
           const summary = {
