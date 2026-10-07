@@ -253,6 +253,30 @@ test("warrant verifier rejects wrong domain, unknown issuer, early use and expir
 });
 
 
+test("warrant v0 rejects mismatched Ed25519 private/public key pairs", () => {
+  const pairA = generateIssuerKeyPairV0();
+  const pairB = generateIssuerKeyPairV0();
+  const transition = baselineTransition();
+  const issuerKeyId = issuerKeyIdFromPublicKey(pairB.publicKey);
+  const body = buildWarrantBodyV0({
+    transitionCommitment: transition.transitionCommitment,
+    notBefore: 1_800_000_000_000,
+    expiresAt: 1_800_000_060_000,
+    nonce: "ac".repeat(32),
+    issuerKeyId,
+  });
+
+  expectCode(
+    () =>
+      signWarrantBodyV0({
+        bodyBytes: body.bytes,
+        privateKey: pairA.privateKey,
+        publicKey: pairB.publicKey,
+      }),
+    "WARRANT_SIGNING_KEYPAIR_MISMATCH"
+  );
+});
+
 test("warrant v0 rejects non-Ed25519 issuer public keys", () => {
   const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   expectCode(
@@ -470,6 +494,62 @@ test(
           enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
           warrantBodySha256: "de".repeat(32),
           payloadSha256,
+        }),
+      "S0_WARRANT_BODY_DIGEST_MISMATCH"
+    );
+
+    store.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+);
+
+test(
+  "S0 rejects reservation when warrant body differs from registered body",
+  { skip: !sqliteAvailable },
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "paygod-s0-"));
+    const dbPath = path.join(dir, "authority.db");
+    const now = 1_800_000_000_000;
+
+    const transition = baselineTransition();
+    const { publicKey } = generateIssuerKeyPairV0();
+    const issuerKeyId = issuerKeyIdFromPublicKey(publicKey);
+    const nonce = "ce".repeat(32);
+    const warrant = buildWarrantBodyV0({
+      transitionCommitment: transition.transitionCommitment,
+      notBefore: now,
+      expiresAt: now + 60_000,
+      nonce,
+      issuerKeyId,
+    });
+
+    const store = await openAuthorityStateStoreV0(dbPath, { now: () => now });
+    store.registerIssued({
+      issuerKeyId,
+      nonce,
+      transitionCommitment: transition.transitionCommitment,
+      enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      notBefore: warrant.body.not_before,
+      expiresAt: warrant.body.expires_at,
+      warrantBodySha256: warrant.bodySha256,
+    });
+    store.stagePayload({
+      issuerKeyId,
+      nonce,
+      transitionCommitment: transition.transitionCommitment,
+      enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      warrantBodySha256: warrant.bodySha256,
+      payloadSha256,
+    });
+
+    expectCode(
+      () =>
+        store.reserveTransaction({
+          issuerKeyId,
+          nonce,
+          transitionCommitment: transition.transitionCommitment,
+          enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+          warrantBodySha256: "df".repeat(32),
         }),
       "S0_WARRANT_BODY_DIGEST_MISMATCH"
     );
