@@ -32,13 +32,21 @@ function topicAddress(topic, code, label) {
   if (typeof topic !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(topic)) {
     authorityFail(code, label + " must be a 32-byte topic");
   }
-  return "0x" + topic.slice(-40).toLowerCase();
+  const normalized = topic.toLowerCase();
+  if (!/^0x0{24}[0-9a-f]{40}$/.test(normalized)) {
+    authorityFail(code, label + " is not a canonically padded indexed address");
+  }
+  return "0x" + normalized.slice(-40);
 }
 function topicUint(topic, code, label) {
   if (typeof topic !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(topic)) {
     authorityFail(code, label + " must be a 32-byte topic");
   }
-  return BigInt(topic).toString(10);
+  const value = BigInt(topic);
+  if (value <= 0n) {
+    authorityFail(code, label + " must be a positive integer");
+  }
+  return value.toString(10);
 }
 function runCast(castBin, args) {
   const r = spawnSync(castBin, args, {
@@ -123,6 +131,18 @@ export async function releaseStagedPayloadThroughE2V0({
   );
   requireString(rpcUrl, "E2_RELEASE_RPC_REQUIRED", "rpcUrl");
   requireString(providerUrl, "E2_RELEASE_PROVIDER_URL_REQUIRED", "providerUrl");
+  if (rpcUrl !== "http://127.0.0.1:18545") {
+    authorityFail(
+      "E2_RELEASE_RPC_OUTSIDE_FROZEN_LOCAL_BOUNDARY",
+      "v0 E2 release permits only the frozen local Anvil RPC"
+    );
+  }
+  if (providerUrl !== "http://127.0.0.1:18547/release") {
+    authorityFail(
+      "E2_RELEASE_PROVIDER_OUTSIDE_FROZEN_LOCAL_BOUNDARY",
+      "v0 E2 release permits only the frozen loopback provider ingress"
+    );
+  }
 
   const transition = parseExactTransitionEnvelopeV0(exactEnvelope);
   const warrant = verifyWarrantV0({
