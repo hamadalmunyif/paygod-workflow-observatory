@@ -188,7 +188,7 @@ jobs:
 
       - name: Run adversarial C transaction-surface preflight
         env:
-          CLIENT_IMAGE: "node:22-bookworm"
+          CLIENT_IMAGE: "node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8"
           JOB_PROVIDER: "0x3333333333333333333333333333333333333333"
           JOB_EVALUATOR: "0x4444444444444444444444444444444444444444"
           JOB_EXPIRED_AT: "2000000000"
@@ -199,9 +199,13 @@ jobs:
           mkdir -p out/release/gate-zero-client
 
           docker pull "$CLIENT_IMAGE" >/dev/null
-          CLIENT_REPO_DIGEST="$(docker image inspect             --format '{{index .RepoDigests 0}}' "$CLIENT_IMAGE")"
+          CLIENT_REPO_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "$CLIENT_IMAGE")"
           test -n "$CLIENT_REPO_DIGEST"
-          printf '%s\n' "$CLIENT_REPO_DIGEST"             > out/release/local-evm/client-container-image.txt
+          case "$CLIENT_REPO_DIGEST" in
+            *@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8) ;;
+            *) echo "Unexpected client image digest: $CLIENT_REPO_DIGEST"; exit 1 ;;
+          esac
+          printf '%s\n' "$CLIENT_REPO_DIGEST" > out/release/local-evm/client-container-image.txt
 
           CALLDATA_HEX="$(tr -d '\n\r ' < out/release/local-evm/calldata.hex)"
 
@@ -213,12 +217,55 @@ jobs:
             .a51_privileged_rpc_rejected == true and
             .a52_r_admin_reachable == false and
             .a53_node_managed_protected_signing_rejected == true and
+            .a54_alternate_sender_differs_from_protected == true and
+            .a54_alternate_sender != .a54_protected_sender and
             .a54_exact_calldata_observed == true and
             .a54_exact_target_observed == true and
             .a54_protected_consequence_observed == false and
             .next_job_id_before == .next_job_id_after and
             .raw_transaction_submission_available == true
           ' out/release/gate-zero-client/preflight.json >/dev/null
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+
+          const forbidden = new Set([
+            'anvil_setBalance',
+            'eth_sendTransaction',
+            'eth_sign',
+            'eth_signTransaction',
+            'personal_sign',
+          ]);
+
+          const lines = fs
+            .readFileSync('out/release/local-evm/r-client-audit.jsonl', 'utf8')
+            .trim()
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line));
+
+          for (const method of forbidden) {
+            const matches = lines.filter((entry) => entry.method === method);
+            if (matches.length === 0) {
+              throw new Error('Missing R-client audit entry for forbidden method: ' + method);
+            }
+            if (matches.some((entry) => entry.forwarded !== false)) {
+              throw new Error('Forbidden R-client method was forwarded: ' + method);
+            }
+          }
+
+          const rawForwarded = lines.some(
+            (entry) =>
+              entry.method === 'eth_sendRawTransaction' &&
+              entry.forwarded === true &&
+              entry.decision === 'forwarded'
+          );
+          if (!rawForwarded) {
+            throw new Error('Expected eth_sendRawTransaction forwarding was not audited');
+          }
+
+          console.log('PASS: R-client audit confirms forbidden methods were not forwarded and raw submission remained available.');
+          NODE
 
       - name: Build controlled Release Candidate
         run: |
