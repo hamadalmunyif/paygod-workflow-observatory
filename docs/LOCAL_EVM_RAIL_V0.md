@@ -130,6 +130,22 @@ The protected transition is defined so that default/alternate accounts cannot pr
 
 ## 8. Surrogate contract
 
+The exact contract semantics and compiler profile are frozen in:
+
+- `LOCAL_EVM_SURROGATE_CONTRACT_V0.md`
+
+Reference compiler:
+
+- Solidity `0.8.30+commit.73712a01`
+- tag commit `73712a01b2de56d9ad91e3b6936f85c90cb7de36`
+- linux-amd64 SHA-256 `f3e987dc6ecebd4bd350c48edcbc320b46cf9e3109bd3fc3d88f1acaf4c428f7`
+
+The exact RPC/network boundary is frozen in:
+
+- `LOCAL_EVM_RPC_BOUNDARY_V0.md`
+
+### Contract role
+
 The local rail deploys one controlled contract:
 
 `ControlledJobRailV0`
