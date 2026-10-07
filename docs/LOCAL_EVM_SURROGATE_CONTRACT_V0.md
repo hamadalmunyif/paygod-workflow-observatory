@@ -32,13 +32,25 @@ Reference build settings:
 
 - optimizer: disabled;
 - metadata bytecode hash: `none` where supported;
-- EVM version: explicitly pinned by the implementation PR before witness execution;
+- EVM version: `cancun`;
 - no libraries;
 - no proxy;
 - no delegatecall;
 - no upgrade path.
 
 Any compiler/build-setting change changes the contract profile and requires a new source/code hash.
+
+Reference implementation source:
+
+`contracts/ControlledJobRailV0.sol`
+
+Frozen custom errors:
+
+- `ZeroAuthorizedClient()`
+- `UnauthorizedCaller(address)`
+- `NonZeroValue(uint256)`
+- `ZeroProvider()`
+- `JobNotFound(uint256)`
 
 ## 3. Constructor
 
@@ -164,7 +176,7 @@ function getJob(uint256 jobId)
 
 A missing job id must not fabricate a populated job.
 
-The implementation may either revert for missing ids or return an explicit absence shape, but the chosen behavior must be frozen in the implementation PR before witness execution.
+Missing job ids revert with `JobNotFound(uint256)`.
 
 ## 9. Revert conditions
 
