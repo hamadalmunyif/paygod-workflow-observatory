@@ -1,4 +1,5 @@
 import { authorityFail } from "./authority-error.mjs";
+import { sha256Bytes } from "./digest.mjs";
 import { parseExactTransitionEnvelopeV0 } from "./transition-envelope-v0.mjs";
 
 export const CONTROLLED_RELEASE_CANDIDATE_KIND =
@@ -6,8 +7,19 @@ export const CONTROLLED_RELEASE_CANDIDATE_KIND =
 export const CONTROLLED_RELEASE_CANDIDATE_PROFILE =
   "controlled-harness/release-candidate/v0";
 export const CONTROLLED_RELEASE_DOMAIN = "controlled-harness/t0-v0";
+export const ADMISSION_PACK_NAME = "acp-request-admission-shadow";
+export const ADMISSION_PACK_VERSION = "0.2.0";
+export const ADMISSION_ALLOWED_VERDICT = "allow";
+export const ADMISSION_ALLOWED_RULE = "shadow-admitted";
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+function asBuffer(value, label) {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (typeof value === "string") return Buffer.from(value, "utf8");
+  authorityFail("RELEASE_BYTES_REQUIRED", label + " must be explicit bytes or UTF-8 text");
+}
 
 function requireSha256(value, code, label) {
   if (typeof value !== "string" || !SHA256_HEX.test(value)) {
@@ -23,9 +35,66 @@ function requireNonEmptyString(value, code, label) {
   return value;
 }
 
+export function parseAdmissionReceiptV0(admissionReceiptBytes) {
+  const bytes = asBuffer(admissionReceiptBytes, "admission receipt");
+  let receipt;
+  try {
+    receipt = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    authorityFail(
+      "RELEASE_ADMISSION_RECEIPT_JSON_INVALID",
+      "admission receipt must be valid JSON"
+    );
+  }
+
+  if (receipt?.api_version !== "paygod/v1" || receipt?.kind !== "Receipt") {
+    authorityFail(
+      "RELEASE_ADMISSION_RECEIPT_CONTRACT_MISMATCH",
+      "admission receipt must be a paygod/v1 Receipt"
+    );
+  }
+  if (
+    receipt?.pack?.name !== ADMISSION_PACK_NAME ||
+    receipt?.pack?.version !== ADMISSION_PACK_VERSION
+  ) {
+    authorityFail(
+      "RELEASE_ADMISSION_PACK_MISMATCH",
+      "admission receipt must come from the frozen admission pack"
+    );
+  }
+  const packDigestSha256 = requireSha256(
+    receipt?.pack?.digest_sha256,
+    "RELEASE_ADMISSION_PACK_DIGEST_INVALID",
+    "admission receipt pack.digest_sha256"
+  );
+  const inputCanonicalHash = requireSha256(
+    receipt?.input?.canonical_hash,
+    "RELEASE_ADMISSION_INPUT_HASH_INVALID",
+    "admission receipt input.canonical_hash"
+  );
+  if (
+    receipt?.verdict?.value !== ADMISSION_ALLOWED_VERDICT ||
+    receipt?.verdict?.rule_name !== ADMISSION_ALLOWED_RULE
+  ) {
+    authorityFail(
+      "RELEASE_ADMISSION_VERDICT_MISMATCH",
+      "admission receipt must be allow/shadow-admitted"
+    );
+  }
+
+  return {
+    receipt,
+    bytes,
+    receiptSha256: sha256Bytes(bytes),
+    packDigestSha256,
+    inputCanonicalHash,
+  };
+}
+
 export function buildControlledReleaseCandidateV0({
   requestShadow,
   transitionEnvelopeBytes,
+  admissionReceiptBytes,
 }) {
   if (requestShadow?.kind !== "acp-request-shadow") {
     authorityFail(
@@ -85,7 +154,9 @@ export function buildControlledReleaseCandidateV0({
     );
   }
 
+  const admission = parseAdmissionReceiptV0(admissionReceiptBytes);
   const transition = parseExactTransitionEnvelopeV0(transitionEnvelopeBytes);
+
   if (transition.envelope.request_identity_sha256 !== admittedIdentity) {
     authorityFail(
       "RELEASE_REQUEST_TRANSITION_IDENTITY_MISMATCH",
@@ -111,6 +182,15 @@ export function buildControlledReleaseCandidateV0({
   const candidate = {
     kind: CONTROLLED_RELEASE_CANDIDATE_KIND,
     profile: CONTROLLED_RELEASE_CANDIDATE_PROFILE,
+    admission: {
+      receipt_sha256: admission.receiptSha256,
+      input_canonical_hash: admission.inputCanonicalHash,
+      pack_name: admission.receipt.pack.name,
+      pack_version: admission.receipt.pack.version,
+      pack_digest_sha256: admission.packDigestSha256,
+      verdict: admission.receipt.verdict.value,
+      rule: admission.receipt.verdict.rule_name,
+    },
     request: {
       status: requestShadow.request.status,
       schema_validation: requestShadow.request.schemaValidation,
@@ -149,18 +229,17 @@ export function buildControlledReleaseCandidateV0({
     bytes,
     transitionCommitment: transition.transitionCommitment,
     admittedRequestIdentitySha256: admittedIdentity,
+    admissionReceiptSha256: admission.receiptSha256,
   };
 }
-
 
 export function verifyControlledReleaseCandidateV0({
   candidateBytes,
   requestShadow,
   transitionEnvelopeBytes,
+  admissionReceiptBytes,
 }) {
-  const input = Buffer.isBuffer(candidateBytes)
-    ? candidateBytes
-    : Buffer.from(candidateBytes);
+  const input = asBuffer(candidateBytes, "release candidate");
 
   let parsed;
   try {
@@ -188,12 +267,13 @@ export function verifyControlledReleaseCandidateV0({
   const expected = buildControlledReleaseCandidateV0({
     requestShadow,
     transitionEnvelopeBytes,
+    admissionReceiptBytes,
   });
 
   if (!expected.bytes.equals(input)) {
     authorityFail(
       "RELEASE_CANDIDATE_DERIVATION_MISMATCH",
-      "release candidate bytes are not the exact v0 derivation of the admitted request and frozen transition envelope"
+      "release candidate bytes are not the exact v0 derivation of the admitted request, D1 receipt, and frozen transition envelope"
     );
   }
 
@@ -203,5 +283,6 @@ export function verifyControlledReleaseCandidateV0({
     bytes: expected.bytes,
     transitionCommitment: expected.transitionCommitment,
     admittedRequestIdentitySha256: expected.admittedRequestIdentitySha256,
+    admissionReceiptSha256: expected.admissionReceiptSha256,
   };
 }
