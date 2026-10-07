@@ -16,6 +16,13 @@ function requireSha256(value, code, label) {
   return value;
 }
 
+function requireNonEmptyString(value, code, label) {
+  if (typeof value !== "string" || value.length === 0) {
+    authorityFail(code, label + " must be a non-empty string");
+  }
+  return value;
+}
+
 export function buildControlledReleaseCandidateV0({
   requestShadow,
   transitionEnvelopeBytes,
@@ -54,6 +61,16 @@ export function buildControlledReleaseCandidateV0({
     requestShadow?.request?.requestPayloadArtifactSha256,
     "RELEASE_REQUEST_PAYLOAD_DIGEST_INVALID",
     "requestPayloadArtifactSha256"
+  );
+  const attemptId = requireNonEmptyString(
+    requestShadow?.request?.attemptId,
+    "RELEASE_ATTEMPT_ID_REQUIRED",
+    "attemptId"
+  );
+  const attemptCommitmentSha256 = requireSha256(
+    requestShadow?.request?.attemptCommitmentSha256,
+    "RELEASE_ATTEMPT_COMMITMENT_INVALID",
+    "attemptCommitmentSha256"
   );
 
   if (
@@ -99,9 +116,8 @@ export function buildControlledReleaseCandidateV0({
       schema_validation: requestShadow.request.schemaValidation,
       admitted_request_identity_sha256: admittedIdentity,
       request_payload_sha256: requestPayloadSha256,
-      attempt_id: requestShadow.request.attemptId ?? null,
-      attempt_commitment_sha256:
-        requestShadow.request.attemptCommitmentSha256 ?? null,
+      attempt_id: attemptId,
+      attempt_commitment_sha256: attemptCommitmentSha256,
     },
     transition: {
       schema: transition.envelope.schema,
