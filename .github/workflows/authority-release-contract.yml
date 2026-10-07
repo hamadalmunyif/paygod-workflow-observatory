@@ -922,7 +922,20 @@ jobs:
             .second_reservation_accepted == false
           ' out/release/gate-zero-client/a13-consumed-replay.json >/dev/null
 
+      - name: Remove protected execution key and stop local rail
+        if: always()
+        run: |
+          rm -f "$PROTECTED_EXECUTION_KEY_FILE"
+          if [ -f out/release/local-evm/r-client-proxy.pid ]; then
+            kill "$(cat out/release/local-evm/r-client-proxy.pid)" 2>/dev/null || true
+          fi
+          if [ -f out/release/local-evm/anvil.pid ]; then
+            kill "$(cat out/release/local-evm/anvil.pid)" 2>/dev/null || true
+          fi
+
       - name: Record bounded T0 E1 Gate Zero witness
+        env:
+          WITNESS_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
@@ -1005,7 +1018,8 @@ jobs:
             claim_status: 'BOUNDED_E1_ONLY_E2_RELEASE_NOT_YET_TESTED',
             enforcement_surface: 'E1_TRANSACTION',
             threat_model: 'T0',
-            harness_commit: process.env.GITHUB_SHA,
+            harness_source_commit: process.env.WITNESS_SOURCE_SHA,
+            workflow_execution_sha: process.env.GITHUB_SHA,
             workflow_run_id: process.env.GITHUB_RUN_ID,
             workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
             component_pins: {
@@ -1056,7 +1070,7 @@ jobs:
             },
           };
 
-          if (!result.harness_commit || !result.workflow_run_id) {
+          if (!result.harness_source_commit || !result.workflow_execution_sha || !result.workflow_run_id) {
             throw new Error('GitHub witness identity is missing');
           }
 
@@ -1066,17 +1080,6 @@ jobs:
           );
           console.log(JSON.stringify(result, null, 2));
           NODE
-
-      - name: Remove protected execution key and stop local rail
-        if: always()
-        run: |
-          rm -f "$PROTECTED_EXECUTION_KEY_FILE"
-          if [ -f out/release/local-evm/r-client-proxy.pid ]; then
-            kill "$(cat out/release/local-evm/r-client-proxy.pid)" 2>/dev/null || true
-          fi
-          if [ -f out/release/local-evm/anvil.pid ]; then
-            kill "$(cat out/release/local-evm/anvil.pid)" 2>/dev/null || true
-          fi
 
       - name: Upload local release contract evidence
         if: always()
