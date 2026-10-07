@@ -16,6 +16,11 @@ const protectedAccount = required("PROTECTED_EXECUTION_ACCOUNT").toLowerCase();
 const calldataHex = required("CALLDATA_HEX").trim().toLowerCase();
 const castBin = process.env.CAST_BIN ?? "/tools/cast";
 const outputPath = process.env.GATE_ZERO_OUTPUT ?? "/work/gate-zero-e1-client.json";
+const jobProvider = required("JOB_PROVIDER").toLowerCase();
+const jobEvaluator = required("JOB_EVALUATOR").toLowerCase();
+const jobExpiredAt = required("JOB_EXPIRED_AT");
+const jobDescription = required("JOB_DESCRIPTION");
+const jobHook = required("JOB_HOOK").toLowerCase();
 
 // Anvil default account #0. Its secrecy is explicitly not a harness property.
 const alternatePrivateKey =
@@ -133,8 +138,12 @@ const before = await nextJobId();
 const makeTx = cast([
   "mktx",
   target,
-  "--data",
-  calldataHex,
+  "createJob(address,address,uint256,string,address)",
+  jobProvider,
+  jobEvaluator,
+  jobExpiredAt,
+  jobDescription,
+  jobHook,
   "--private-key",
   alternatePrivateKey,
   "--gas-limit",
@@ -193,6 +202,26 @@ if (
   );
 }
 
+const alternateTx = await rpc(
+  rClientUrl,
+  "eth_getTransactionByHash",
+  [alternateTxHash],
+  2000
+);
+if (!alternateTx.body?.result) {
+  throw new Error("alternate transaction could not be read back");
+}
+if (String(alternateTx.body.result.input ?? "").toLowerCase() !== calldataHex) {
+  throw new Error(
+    "A54 harness defect: alternate raw tx input differs from frozen calldata"
+  );
+}
+if (String(alternateTx.body.result.to ?? "").toLowerCase() !== target) {
+  throw new Error(
+    "A54 harness defect: alternate raw tx target differs from frozen target"
+  );
+}
+
 const after = await nextJobId();
 if (after !== before) {
   throw new Error(
@@ -211,6 +240,8 @@ const summary = {
   a53_node_managed_protected_signing_rejected: true,
   a54_alternate_account_tx_hash: alternateTxHash,
   a54_alternate_account_receipt_status: alternateReceipt.status,
+  a54_exact_calldata_observed: true,
+  a54_exact_target_observed: true,
   a54_protected_consequence_observed: false,
   next_job_id_before: before,
   next_job_id_after: after,
