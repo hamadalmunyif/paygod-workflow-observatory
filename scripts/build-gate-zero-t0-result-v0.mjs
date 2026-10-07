@@ -41,9 +41,10 @@ const preE2Path = requiredArg("--pre-e2");
 const postE2Path = requiredArg("--post-e2");
 const postE1Path = requiredArg("--post-e1");
 const clientImagePath = requiredArg("--client-image");
+const e1ExecutionPath = requiredArg("--e1-execution");
 const outputPath = requiredArg("--output");
 
-const [preflight, preE2, postE2, postE1, auditText, clientImage] =
+const [preflight, preE2, postE2, postE1, auditText, clientImage, e1Execution] =
   await Promise.all([
     readJson(preflightPath),
     readJson(preE2Path),
@@ -51,6 +52,7 @@ const [preflight, preE2, postE2, postE1, auditText, clientImage] =
     readJson(postE1Path),
     fs.readFile(auditPath, "utf8"),
     fs.readFile(clientImagePath, "utf8").then((x) => x.trim()),
+    readJson(e1ExecutionPath),
   ]);
 
 const audit = auditText.trim().split(/\r?\n/).filter(Boolean).map(JSON.parse);
@@ -114,13 +116,25 @@ pass(
   "T0-CONFIG-02 failed"
 );
 
-const [preflightSha, auditSha, preE2Sha, postE2Sha, postE1Sha] =
+pass(
+  e1Execution.status === "TX_EXECUTED" &&
+  e1Execution.s0State === "TX_EXECUTED" &&
+  e1Execution.signatureReturnedToCaller === false &&
+  e1Execution.operationalMetadataSuppliedByCaller === false &&
+  e1Execution.providerDelivered === false &&
+  e1Execution.payloadReleased === false &&
+  e1Execution.acpOrQuiverInteraction === false,
+  "positive E1 execution evidence is incomplete"
+);
+
+const [preflightSha, auditSha, preE2Sha, postE2Sha, postE1Sha, e1ExecutionSha] =
   await Promise.all([
     digest(preflightPath),
     digest(auditPath),
     digest(preE2Path),
     digest(postE2Path),
     digest(postE1Path),
+    digest(e1ExecutionPath),
   ]);
 
 const attempts = [
@@ -193,6 +207,16 @@ const result = {
   },
   harness_commit: process.env.GITHUB_SHA ?? "UNKNOWN",
   workflow_run_id: process.env.GITHUB_RUN_ID ?? "UNKNOWN",
+  positive_path: {
+    status: e1Execution.status,
+    s0_state: e1Execution.s0State,
+    protected_execution_account: e1Execution.protectedExecutionAccount,
+    transaction_hash: e1Execution.transactionHash,
+    tx_evidence_sha256: e1Execution.txEvidenceSha256,
+    signature_returned_to_caller: e1Execution.signatureReturnedToCaller,
+    evidence_artifact_path: e1ExecutionPath,
+    evidence_sha256: e1ExecutionSha,
+  },
   components: {
     paygod_kernel_commit: "23ea2cca74ef8b698718c6d0c8dbda447f13bb37",
     foundry_version: "v1.8.5",
