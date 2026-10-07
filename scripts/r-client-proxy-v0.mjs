@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
 import process from "node:process";
 
 const upstreamUrl = process.env.RPC_UPSTREAM_URL ?? "http://127.0.0.1:18545";
@@ -24,7 +25,7 @@ const allowed = new Set([
   "net_version",
 ]);
 
-fs.mkdirSync(new URL(".", "file://" + process.cwd() + "/" + auditPath).pathname.replace(/\/[^/]*$/, ""), { recursive: true });
+fs.mkdirSync(path.dirname(auditPath), { recursive: true });
 
 function audit(event) {
   fs.appendFileSync(
