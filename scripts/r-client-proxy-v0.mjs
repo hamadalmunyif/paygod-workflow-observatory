@@ -82,6 +82,12 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 400, rpcError(null, -32700, "invalid JSON"));
   }
 
+  const validId =
+    body?.id === undefined ||
+    body?.id === null ||
+    typeof body?.id === "string" ||
+    (typeof body?.id === "number" && Number.isFinite(body.id));
+
   if (
     !body ||
     Array.isArray(body) ||
@@ -89,6 +95,7 @@ const server = http.createServer(async (req, res) => {
     body.jsonrpc !== "2.0" ||
     typeof body.method !== "string" ||
     body.method.length === 0 ||
+    !validId ||
     !(
       body.params === undefined ||
       Array.isArray(body.params) ||
