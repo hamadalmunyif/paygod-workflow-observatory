@@ -579,6 +579,33 @@ test(
     });
     assert.equal(conformant.state, "CONFORMANT");
 
+    const events = store.listEvents({ issuerKeyId, nonce });
+    assert.deepEqual(
+      events.map((event) => [
+        event.priorState,
+        event.newState,
+        event.eventType,
+        event.requestingComponent,
+        event.result,
+      ]),
+      [
+        [null, "ISSUED", "WARRANT_ISSUED", "I", "SUCCESS"],
+        ["ISSUED", "PAYLOAD_STAGED", "PAYLOAD_STAGED", "E2", "SUCCESS"],
+        ["PAYLOAD_STAGED", "TX_RESERVED", "TX_RESERVED", "E1", "SUCCESS"],
+        ["TX_RESERVED", "TX_EXECUTED", "TX_EXECUTED", "E1", "SUCCESS"],
+        ["TX_EXECUTED", "PAYLOAD_RELEASED", "PAYLOAD_RELEASED", "E2", "SUCCESS"],
+        ["PAYLOAD_RELEASED", "CONFORMANT", "CONFORMANT", "V", "SUCCESS"],
+      ]
+    );
+    assert.ok(
+      events.every(
+        (event) =>
+          event.issuerKeyId === issuerKeyId &&
+          event.nonce === nonce &&
+          event.transitionCommitment === transition.transitionCommitment
+      )
+    );
+
     store.close();
     await fs.rm(dir, { recursive: true, force: true });
   }
