@@ -358,13 +358,14 @@ The following remain unresolved:
 - Witness 002b: **CLOSED / SUCCESS**
 - Witness 003-PREFLIGHT: **IN PROGRESS — authority contracts frozen**
 - Witness 003-LIVE against Quiver: **REJECTED IN CURRENT FORM**
-- Controlled two-party harness: **NOT YET AUTHORIZED; specification only**
+- Controlled two-party harness: **LOCAL-ONLY IMPLEMENTATION AUTHORIZED**
 - Controlled harness architecture v0: **DESIGN FROZEN**
-- Harness implementation: **NOT AUTHORIZED**
-- Issuer implementation: **NOT AUTHORIZED**
-- E1 implementation: **NOT AUTHORIZED**
-- E2 implementation: **NOT AUTHORIZED**
-- S0 implementation: **NOT AUTHORIZED**
+- Harness readiness review v0: **PASS FOR LOCAL-ONLY IMPLEMENTATION**
+- Harness implementation: **AUTHORIZED — LOCAL CLOSED HARNESS ONLY**
+- Issuer implementation: **AUTHORIZED — LOCAL TEST ISSUER ONLY**
+- E1 implementation: **AUTHORIZED — LOCAL EXECUTION KEY / CHAIN 31337 ONLY**
+- E2 implementation: **AUTHORIZED — CONTROLLED PROVIDER PATH ONLY**
+- S0 implementation: **AUTHORIZED — LOCAL DURABLE TEST STATE ONLY**
 - ACP Agent creation: **NOT AUTHORIZED**
 - Signer creation/registration: **NOT AUTHORIZED**
 - Job creation: **NOT AUTHORIZED**
@@ -382,6 +383,7 @@ The next work remains non-live:
 4. verify that S0 replay state and restart/rollback assumptions are explicit;
 5. verify that E1/E2 sequencing exposes partial-state outcomes rather than hiding them;
 6. verify that the post-flight evidence bundle can distinguish REJECTED, PARTIAL_TX_ONLY, NONCONFORMANT, BYPASS_OBSERVED, and HARNESS_DEFECT;
-7. only after those reviews, decide whether implementation of the controlled harness is authorized.
+7. implement only the local closed harness under `CONTROLLED_HARNESS_IMPLEMENTATION_PROFILE_V0.md`;
+8. execute no ACP, Quiver, testnet, mainnet, funded-wallet, or third-party action.
 
 No Agent, Signer, Job, funding, signing, transaction submission, or provider interaction is implied by this document.
