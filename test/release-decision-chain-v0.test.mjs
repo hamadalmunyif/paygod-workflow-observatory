@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { AuthorityError } from "../src/authority-error.mjs";
+import { sha256Bytes } from "../src/digest.mjs";
 import {
   buildControlledReleaseCandidateV0,
 } from "../src/controlled-release-candidate-v0.mjs";
@@ -84,15 +85,26 @@ function receipt({ packName, packVersion, packDigest, inputHash, verdict, rule }
   );
 }
 
-function verification() {
+function verification(receiptBytes, keyId = "controlled-decision-ed25519:test") {
   return {
     status: "valid",
     verifier_version: "0.4.0",
+    receipt_sha256: sha256Bytes(receiptBytes),
     verification: {
       integrity: "verified",
-      issuer_authenticity: "not_verified",
+      issuer_authenticity: "verified",
       replay: "not_performed",
       time_authority: "producer_supplied",
+    },
+    issuer_signature: {
+      present: true,
+      profile: "paygod-ed25519-receipt-v1",
+      algorithm: "Ed25519",
+      key_id: keyId,
+      receipt_sha256_matches: true,
+      key_trusted: true,
+      signature_valid: true,
+      reason: "verified",
     },
   };
 }
@@ -120,9 +132,13 @@ function profile() {
     },
     enforcementDomain: "controlled-harness/t0-v0",
     chainId: 31337,
-    paygodReceiptIssuerAuthenticityRequired: false,
+    paygodReceiptIssuerAuthenticityRequired: true,
     paygodDecisionReplayPerformed: false,
     externalExecutionAuthorized: false,
+    paygodReceiptSignatureProfile: "paygod-ed25519-receipt-v1",
+    paygodReceiptTrustProfile: "paygod-ed25519-trust-v1",
+    paygodDecisionIssuerKeyScope: "ephemeral-controlled-harness-epoch",
+    decisionChainRequiresSameIssuerKey: true,
   };
 }
 
@@ -166,12 +182,12 @@ test("decision chain v0 verifies D1 -> candidate -> D2 without upgrading externa
     requestShadow: x.shadow,
     requestShadowCanonicalHash: d1InputHash,
     admissionReceiptBytes: x.d1,
-    admissionVerification: verification(),
+    admissionVerification: verification(x.d1),
     transitionEnvelopeBytes: x.tx.bytes,
     releaseCandidateBytes: x.candidate.bytes,
     releaseCandidateCanonicalHash: d2InputHash,
     releaseReceiptBytes: x.d2,
-    releaseVerification: verification(),
+    releaseVerification: verification(x.d2),
     profile: profile(),
   });
 
@@ -193,12 +209,12 @@ test("decision chain rejects D1 canonical input mismatch", () => {
         requestShadow: x.shadow,
         requestShadowCanonicalHash: "12".repeat(32),
         admissionReceiptBytes: x.d1,
-        admissionVerification: verification(),
+        admissionVerification: verification(x.d1),
         transitionEnvelopeBytes: x.tx.bytes,
         releaseCandidateBytes: x.candidate.bytes,
         releaseCandidateCanonicalHash: d2InputHash,
         releaseReceiptBytes: x.d2,
-        releaseVerification: verification(),
+        releaseVerification: verification(x.d2),
         profile: profile(),
       }),
     "DECISION_CHAIN_D1_INPUT_HASH_MISMATCH"
@@ -213,12 +229,12 @@ test("decision chain rejects D2 canonical input mismatch", () => {
         requestShadow: x.shadow,
         requestShadowCanonicalHash: d1InputHash,
         admissionReceiptBytes: x.d1,
-        admissionVerification: verification(),
+        admissionVerification: verification(x.d1),
         transitionEnvelopeBytes: x.tx.bytes,
         releaseCandidateBytes: x.candidate.bytes,
         releaseCandidateCanonicalHash: "13".repeat(32),
         releaseReceiptBytes: x.d2,
-        releaseVerification: verification(),
+        releaseVerification: verification(x.d2),
         profile: profile(),
       }),
     "DECISION_CHAIN_D2_INPUT_HASH_MISMATCH"
@@ -235,12 +251,12 @@ test("decision chain rejects admission pack digest drift", () => {
         requestShadow: x.shadow,
         requestShadowCanonicalHash: d1InputHash,
         admissionReceiptBytes: x.d1,
-        admissionVerification: verification(),
+        admissionVerification: verification(x.d1),
         transitionEnvelopeBytes: x.tx.bytes,
         releaseCandidateBytes: x.candidate.bytes,
         releaseCandidateCanonicalHash: d2InputHash,
         releaseReceiptBytes: x.d2,
-        releaseVerification: verification(),
+        releaseVerification: verification(x.d2),
         profile: p,
       }),
     "DECISION_CHAIN_D1_PACK_DIGEST_MISMATCH"
@@ -263,15 +279,57 @@ test("decision chain rejects D1 receipt substitution after D2 candidate freeze",
         requestShadow: x.shadow,
         requestShadowCanonicalHash: "15".repeat(32),
         admissionReceiptBytes: alternateD1,
-        admissionVerification: verification(),
+        admissionVerification: verification(x.d1),
         transitionEnvelopeBytes: x.tx.bytes,
         releaseCandidateBytes: x.candidate.bytes,
         releaseCandidateCanonicalHash: d2InputHash,
         releaseReceiptBytes: x.d2,
-        releaseVerification: verification(),
+        releaseVerification: verification(x.d2),
         profile: profile(),
       }),
     "RELEASE_CANDIDATE_DERIVATION_MISMATCH"
+  );
+});
+
+test("decision chain rejects D1/D2 decision issuer epoch mismatch", () => {
+  const x = baseline();
+  expectCode(
+    () =>
+      verifyReleaseDecisionChainV0({
+        requestShadow: x.shadow,
+        requestShadowCanonicalHash: d1InputHash,
+        admissionReceiptBytes: x.d1,
+        admissionVerification: verification(x.d1, "controlled-decision-ed25519:epoch-a"),
+        transitionEnvelopeBytes: x.tx.bytes,
+        releaseCandidateBytes: x.candidate.bytes,
+        releaseCandidateCanonicalHash: d2InputHash,
+        releaseReceiptBytes: x.d2,
+        releaseVerification: verification(x.d2, "controlled-decision-ed25519:epoch-b"),
+        profile: profile(),
+      }),
+    "DECISION_CHAIN_DECISION_ISSUER_EPOCH_MISMATCH"
+  );
+});
+
+test("decision chain rejects unauthenticated D1 receipt", () => {
+  const x = baseline();
+  const unverified = verification(x.d1);
+  unverified.verification.issuer_authenticity = "not_verified";
+  expectCode(
+    () =>
+      verifyReleaseDecisionChainV0({
+        requestShadow: x.shadow,
+        requestShadowCanonicalHash: d1InputHash,
+        admissionReceiptBytes: x.d1,
+        admissionVerification: unverified,
+        transitionEnvelopeBytes: x.tx.bytes,
+        releaseCandidateBytes: x.candidate.bytes,
+        releaseCandidateCanonicalHash: d2InputHash,
+        releaseReceiptBytes: x.d2,
+        releaseVerification: verification(x.d2),
+        profile: profile(),
+      }),
+    "DECISION_CHAIN_D1_AUTHENTICITY_NOT_VERIFIED"
   );
 });
 
@@ -291,12 +349,12 @@ test("decision chain rejects D2 wrong rule", () => {
         requestShadow: x.shadow,
         requestShadowCanonicalHash: d1InputHash,
         admissionReceiptBytes: x.d1,
-        admissionVerification: verification(),
+        admissionVerification: verification(x.d1),
         transitionEnvelopeBytes: x.tx.bytes,
         releaseCandidateBytes: x.candidate.bytes,
         releaseCandidateCanonicalHash: d2InputHash,
         releaseReceiptBytes: wrongD2,
-        releaseVerification: verification(),
+        releaseVerification: verification(x.d2),
         profile: profile(),
       }),
     "DECISION_CHAIN_D2_VERDICT_MISMATCH"
