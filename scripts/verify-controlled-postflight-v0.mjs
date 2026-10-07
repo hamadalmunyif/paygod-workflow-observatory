@@ -317,12 +317,21 @@ try {
   ) {
     throw new Error("provider observation time precedes PAYLOAD_RELEASED");
   }
+  const isMainPush =
+    process.env.GITHUB_EVENT_NAME === "push" &&
+    process.env.GITHUB_REF === "refs/heads/main";
+  const expectedGateZeroResult = isMainPush
+    ? "NO_BYPASS_OBSERVED_UNDER_T0_E1_PRE_PROVIDER"
+    : "CANDIDATE_T0_WITNESS_PASSED_ON_PR";
+  const expectedGateZeroStatus = isMainPush
+    ? "MAIN_PUSH_WITNESS"
+    : "PR_CANDIDATE_ONLY";
+  equal(gateZero?.result, expectedGateZeroResult, "Gate Zero result");
   equal(
-    gateZero?.result,
-    "NO_BYPASS_OBSERVED_UNDER_T0_E1_PRE_PROVIDER",
-    "Gate Zero result"
+    gateZero?.witness_status,
+    expectedGateZeroStatus,
+    "Gate Zero witness status"
   );
-  equal(gateZero?.witness_status, "MAIN_PUSH_WITNESS", "Gate Zero witness status");
   if (gateZero?.totals?.bypass_observed !== 0) {
     throw new Error("Gate Zero evidence contains a bypass");
   }
@@ -403,6 +412,8 @@ try {
     provider_observation: "RUNTIME_OBSERVED",
     gate_zero_bypass_observed: 0,
     gate_zero_harness_defect: 0,
+    gate_zero_witness_status: gateZero.witness_status,
+    official_main_two_surface_witness: isMainPush,
     authority_state_sequence: observedStates,
     final_s0_state: conformed.state,
     trusted_external_time_proven: false,
