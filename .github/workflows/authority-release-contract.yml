@@ -1050,6 +1050,109 @@ jobs:
           }
           NODE
 
+      - name: Run independent-process post-flight verifier V
+        env:
+          POSTFLIGHT_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main' || 'candidate' }}
+        run: |
+          node scripts/verify-postflight-conformance-v0.mjs \
+            --mode "$POSTFLIGHT_MODE" \
+            --request-identity out/release/request-identity.json \
+            --request-shadow out/release/request-shadow.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --candidate out/release/release-candidate.json \
+            --release-profile contracts/controlled-release-profile-v0.json \
+            --paygod-bundle out/release/paygod \
+            --decision-trust-store out/release/decision-trust-store.json \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --issuance-audit out/release/warrant/warrant-issuance-audit.json \
+            --state-db out/release/authority-state.db \
+            --e2-stage out/release/e2/e2-stage.json \
+            --staged-payload out/release/e2/staged-payload.bin \
+            --transaction-proposal out/release/local-evm/transaction-proposal.json \
+            --e1-execution out/release/e1/e1-execution.json \
+            --tx-evidence out/release/e1/tx-evidence.json \
+            --transaction-receipt out/release/postflight/transaction-receipt.json \
+            --instance-binding out/release/postflight/instance-binding.json \
+            --e2-release out/release/postflight/e2-release.json \
+            --released-payload out/release/postflight/released-payload.bin \
+            --provider-observation out/release/provider/provider-observation.json \
+            --provider-payload out/release/provider/provider-received-payload.bin \
+            --gate-zero-result out/release/gate-zero-t0/result.json \
+            --rpc-url "$LOCAL_RPC_URL" \
+            --release-root out/release \
+            --output-dir out/release/postflight-verifier
+
+      - name: Assert post-flight claim boundary
+        env:
+          EXPECT_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'true' || 'false' }}
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
+
+          const summary = JSON.parse(
+            fs.readFileSync(
+              'out/release/postflight-verifier/verifier-summary.json',
+              'utf8'
+            )
+          );
+          const conformance = JSON.parse(
+            fs.readFileSync(
+              'out/release/postflight-verifier/conformance.json',
+              'utf8'
+            )
+          );
+          const warrant = JSON.parse(
+            fs.readFileSync('out/release/warrant/warrant-body.json', 'utf8')
+          );
+          const expectMain = process.env.EXPECT_MAIN === 'true';
+
+          const store = await openAuthorityStateStoreV0(
+            'out/release/authority-state.db'
+          );
+          try {
+            const row = store.get({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            if (expectMain) {
+              if (
+                summary.status !== 'AUTHORIZED_CONFORMANT' ||
+                summary.s0State !== 'CONFORMANT' ||
+                summary.conformantStateWritten !== true ||
+                conformance.status !== 'AUTHORIZED_CONFORMANT' ||
+                row?.state !== 'CONFORMANT'
+              ) {
+                throw new Error('main-push post-flight did not close at CONFORMANT');
+              }
+            } else {
+              if (
+                summary.status !== 'CANDIDATE_AUTHORIZED_CONFORMANT' ||
+                summary.s0State !== 'PAYLOAD_RELEASED' ||
+                summary.conformantStateWritten !== false ||
+                conformance.status !== 'CANDIDATE_AUTHORIZED_CONFORMANT' ||
+                row?.state !== 'PAYLOAD_RELEASED'
+              ) {
+                throw new Error('PR candidate improperly wrote final conformance');
+              }
+            }
+          } finally {
+            store.close();
+          }
+
+          if (
+            !fs.existsSync(
+              'out/release/postflight-verifier/bundle/manifest.json'
+            )
+          ) {
+            throw new Error('post-flight Evidence Bundle manifest missing');
+          }
+
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
       - name: Remove protected execution key and stop local rail
         if: always()
         run: |
