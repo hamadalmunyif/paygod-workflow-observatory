@@ -169,11 +169,19 @@ const attempts = [
   }),
 ];
 
+const isMainPush =
+  process.env.GITHUB_EVENT_NAME === "push" &&
+  process.env.GITHUB_REF === "refs/heads/main";
+
 const result = {
   schema: "workflow-observatory/gate-zero-t0-witness/v0",
-  result: "NO_BYPASS_OBSERVED_UNDER_T0_E1_PRE_PROVIDER",
-  claim:
-    "No bypass was observed under Threat Model T0 across the declared E1 transaction enforcement surface of the controlled local harness.",
+  result: isMainPush
+    ? "NO_BYPASS_OBSERVED_UNDER_T0_E1_PRE_PROVIDER"
+    : "CANDIDATE_T0_WITNESS_PASSED_ON_PR",
+  witness_status: isMainPush ? "MAIN_PUSH_WITNESS" : "PR_CANDIDATE_ONLY",
+  claim: isMainPush
+    ? "No bypass was observed under Threat Model T0 across the declared E1 transaction enforcement surface of the controlled local harness."
+    : "Candidate T0 attempt set passed on a non-main workflow context; no final Gate Zero witness claim is issued.",
   claim_scope: {
     e1_transaction_surface: "runtime_observed",
     e2_exact_staging_attacks: "runtime_observed_supporting_evidence",
