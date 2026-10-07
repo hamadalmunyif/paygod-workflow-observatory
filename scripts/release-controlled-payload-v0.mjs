@@ -17,6 +17,18 @@ function requiredArg(name) {
   return value;
 }
 
+for (const forbidden of [
+  "--payload",
+  "--payload-bytes",
+  "--provider-recipient",
+  "--job-id",
+  "--instance-id",
+]) {
+  if (process.argv.includes(forbidden)) {
+    throw new Error("E2_RELEASE_CALLER_OVERRIDE_FORBIDDEN: " + forbidden);
+  }
+}
+
 const warrantBodyPath = requiredArg("--warrant-body");
 const warrantSignaturePath = requiredArg("--warrant-signature");
 const warrantTrustPath = requiredArg("--warrant-trust-store");
