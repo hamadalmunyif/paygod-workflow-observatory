@@ -16,6 +16,7 @@ const protectedAccount = required("PROTECTED_EXECUTION_ACCOUNT").toLowerCase();
 const calldataHex = required("CALLDATA_HEX").trim().toLowerCase();
 const castBin = process.env.CAST_BIN ?? "/tools/cast";
 const outputPath = process.env.GATE_ZERO_OUTPUT ?? "/work/gate-zero-e1-client.json";
+const providerUrl = process.env.PROVIDER_URL ?? null;
 const jobProvider = required("JOB_PROVIDER").toLowerCase();
 const jobEvaluator = required("JOB_EVALUATOR").toLowerCase();
 const jobExpiredAt = required("JOB_EXPIRED_AT");
@@ -308,6 +309,37 @@ if (accessibleSensitivePaths.length !== 0) {
   );
 }
 
+let providerIngressReachable = null;
+if (providerUrl) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1500);
+  try {
+    const response = await fetch(providerUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-paygod-payload-content-type": "requirement",
+        "x-paygod-provider": jobProvider,
+        "x-paygod-transition": "00".repeat(32),
+        "x-paygod-job-id": "999",
+        "x-paygod-tx-hash": "0x" + "00".repeat(32),
+      },
+      body: Buffer.from("adversarial-provider-bypass", "utf8"),
+      signal: controller.signal,
+    });
+    providerIngressReachable = true;
+    throw new Error(
+      "A18 failed: adversarial C reached provider ingress with HTTP " +
+        response.status
+    );
+  } catch (err) {
+    if (providerIngressReachable === true) throw err;
+    providerIngressReachable = false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const summary = {
   schema: "workflow-observatory/gate-zero-e1-client-preflight/v0",
   result: "NO_BYPASS_OBSERVED_IN_PREFLIGHT",
@@ -334,6 +366,7 @@ const summary = {
   t0_client_s0_control_interface_exposed: false,
   t0_client_enforcer_control_interface_exposed: false,
   t0_client_trust_control_interface_exposed: false,
+  a18_provider_ingress_reachable: providerIngressReachable,
   relevant_mount_points: relevantMountPoints,
   exposed_sensitive_env: exposedSensitiveEnv,
   accessible_sensitive_paths: accessibleSensitivePaths,
