@@ -166,6 +166,32 @@ jobs:
             --output out/release/transition-envelope.json \
             --proposal-output out/release/local-evm/transaction-proposal.json
 
+      - name: Start loopback-only controlled provider P
+        env:
+          PROVIDER_HOST: "127.0.0.1"
+          PROVIDER_PORT: "18547"
+          PROVIDER_IDENTITY: "0x3333333333333333333333333333333333333333"
+          PROVIDER_OUTPUT_DIR: "out/release/provider"
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/provider
+          node scripts/provider-worker-v0.mjs \
+            > out/release/provider/provider.log 2>&1 &
+          echo "$!" > out/release/provider/provider.pid
+
+          for i in $(seq 1 30); do
+            if [ -f out/release/provider/provider-ready.json ]; then
+              break
+            fi
+            sleep 0.2
+          done
+
+          jq -e '
+            .host == "127.0.0.1" and
+            .port == 18547 and
+            .provider_identity == "0x3333333333333333333333333333333333333333"
+          ' out/release/provider/provider-ready.json >/dev/null
+
       - name: Start fail-closed R-client proxy
         env:
           RPC_UPSTREAM_URL: "http://127.0.0.1:18545"
@@ -209,7 +235,7 @@ jobs:
 
           CALLDATA_HEX="$(tr -d '\n\r ' < out/release/local-evm/calldata.hex)"
 
-          docker run --rm             --add-host=harness-host:host-gateway             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/gate-zero-e1-client-v0.mjs,dst=/work/gate-zero-e1-client-v0.mjs,readonly"             --mount "type=bind,src=$GITHUB_WORKSPACE/out/release/gate-zero-client,dst=/work/out"             --mount "type=bind,src=$FOUNDRY_DIR/cast,dst=/tools/cast,readonly"             -e R_CLIENT_URL="http://harness-host:18546"             -e R_ADMIN_URL="http://harness-host:18545"             -e TARGET="$SURROGATE_ADDRESS"             -e PROTECTED_EXECUTION_ACCOUNT="$PROTECTED_EXECUTION_ACCOUNT"             -e CALLDATA_HEX="$CALLDATA_HEX"             -e JOB_PROVIDER="$JOB_PROVIDER"             -e JOB_EVALUATOR="$JOB_EVALUATOR"             -e JOB_EXPIRED_AT="$JOB_EXPIRED_AT"             -e JOB_DESCRIPTION="$JOB_DESCRIPTION"             -e JOB_HOOK="$JOB_HOOK"             -e GATE_ZERO_OUTPUT="/work/out/preflight.json"             "$CLIENT_IMAGE"             node /work/gate-zero-e1-client-v0.mjs
+          docker run --rm             --add-host=harness-host:host-gateway             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/gate-zero-e1-client-v0.mjs,dst=/work/gate-zero-e1-client-v0.mjs,readonly"             --mount "type=bind,src=$GITHUB_WORKSPACE/out/release/gate-zero-client,dst=/work/out"             --mount "type=bind,src=$FOUNDRY_DIR/cast,dst=/tools/cast,readonly"             -e R_CLIENT_URL="http://harness-host:18546"             -e R_ADMIN_URL="http://harness-host:18545"             -e PROVIDER_URL="http://harness-host:18547/release"             -e TARGET="$SURROGATE_ADDRESS"             -e PROTECTED_EXECUTION_ACCOUNT="$PROTECTED_EXECUTION_ACCOUNT"             -e CALLDATA_HEX="$CALLDATA_HEX"             -e JOB_PROVIDER="$JOB_PROVIDER"             -e JOB_EVALUATOR="$JOB_EVALUATOR"             -e JOB_EXPIRED_AT="$JOB_EXPIRED_AT"             -e JOB_DESCRIPTION="$JOB_DESCRIPTION"             -e JOB_HOOK="$JOB_HOOK"             -e GATE_ZERO_OUTPUT="/work/out/preflight.json"             "$CLIENT_IMAGE"             node /work/gate-zero-e1-client-v0.mjs
 
           jq -e '
             .result == "NO_BYPASS_OBSERVED_IN_PREFLIGHT" and
@@ -229,8 +255,12 @@ jobs:
             .t0_client_sensitive_files_absent == true and
             .t0_client_s0_control_interface_exposed == false and
             .t0_client_enforcer_control_interface_exposed == false and
-            .t0_client_trust_control_interface_exposed == false
+            .t0_client_trust_control_interface_exposed == false and
+            .a18_provider_ingress_reachable == false
           ' out/release/gate-zero-client/preflight.json >/dev/null
+
+          test ! -f out/release/provider/provider-observation.json
+          test ! -f out/release/provider/provider-received-payload.bin
 
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
@@ -770,6 +800,26 @@ jobs:
           console.log(JSON.stringify(stage, null, 2));
           NODE
 
+      - name: Reject E2 provider release before TX_EXECUTED
+        run: |
+          node scripts/test-e2-pre-execution-release-v0.mjs \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --state-db out/release/authority-state.db \
+            --rpc-url "$LOCAL_RPC_URL" \
+            --provider-url "http://127.0.0.1:18547/release" \
+            > out/release/provider/a20-a41-pre-execution.json
+
+          jq -e '
+            .status == "REJECTED_AS_EXPECTED" and
+            .observed_code == "E2_RELEASE_STATE_INVALID" and
+            .s0_state_after == "PAYLOAD_STAGED" and
+            .provider_delivery_attempted == false
+          ' out/release/provider/a20-a41-pre-execution.json >/dev/null
+          test ! -f out/release/provider/provider-observation.json
+
       - name: Run frozen T0 post-E2 attempts
         run: |
           node scripts/gate-zero-t0-witness-v0.mjs \
@@ -887,10 +937,126 @@ jobs:
             --client-image out/release/local-evm/client-container-image.txt \
             --output out/release/gate-zero-t0/result.json
 
+      - name: Release exact staged payload through E2 to provider P
+        run: |
+          node scripts/release-controlled-payload-v0.mjs \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --tx-evidence out/release/e1/tx-evidence.json \
+            --state-db out/release/authority-state.db \
+            --rpc-url "$LOCAL_RPC_URL" \
+            --provider-url "http://127.0.0.1:18547/release" \
+            --output-dir out/release/postflight
+
+      - name: Assert E2 release and provider observation stop at PAYLOAD_RELEASED
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
+
+          const release = JSON.parse(
+            fs.readFileSync('out/release/postflight/e2-release.json', 'utf8')
+          );
+          const observation = JSON.parse(
+            fs.readFileSync('out/release/provider/provider-observation.json', 'utf8')
+          );
+          const warrant = JSON.parse(
+            fs.readFileSync('out/release/warrant/warrant-body.json', 'utf8')
+          );
+          const staged = fs.readFileSync('out/release/e2/staged-payload.bin');
+          const released = fs.readFileSync('out/release/postflight/released-payload.bin');
+          const received = fs.readFileSync('out/release/provider/provider-received-payload.bin');
+          const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+
+          if (
+            release.status !== 'PAYLOAD_RELEASED' ||
+            release.s0State !== 'PAYLOAD_RELEASED' ||
+            release.exactStagedBytesReleased !== true ||
+            release.clientSuppliedReleasePayloadAccepted !== false ||
+            release.conformant !== false
+          ) {
+            throw new Error('E2 release crossed or failed the frozen slice boundary');
+          }
+          if (!staged.equals(released) || !staged.equals(received)) {
+            throw new Error('provider did not receive the exact immutable staged bytes');
+          }
+          if (
+            sha(staged) !== release.releasedPayloadSha256 ||
+            sha(received) !== observation.payload_sha256
+          ) {
+            throw new Error('released/provider payload digest mismatch');
+          }
+          if (
+            release.instanceBinding?.classification !==
+            'INSTANCE_DERIVED_FROM_MATCHING_EXECUTION'
+          ) {
+            throw new Error('job instance was not derived from matching execution');
+          }
+          if (
+            observation.transition_commitment !== release.transitionCommitment ||
+            observation.transaction_hash !== release.transactionHash ||
+            observation.derived_job_id !== release.instanceBinding.derived_job_id ||
+            observation.provider_identity !== release.payloadRecipient
+          ) {
+            throw new Error('provider observation context differs from E2 release');
+          }
+
+          const store = await openAuthorityStateStoreV0(
+            'out/release/authority-state.db'
+          );
+          try {
+            const row = store.get({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            if (row?.state !== 'PAYLOAD_RELEASED') {
+              throw new Error('S0 did not persist PAYLOAD_RELEASED');
+            }
+          } finally {
+            store.close();
+          }
+          NODE
+
+      - name: Export authority-state event evidence through PAYLOAD_RELEASED
+        run: |
+          node scripts/export-authority-state-events-v0.mjs \
+            --state-db out/release/authority-state.db \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --output out/release/postflight/authority-state-events.jsonl
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const events = fs
+            .readFileSync('out/release/postflight/authority-state-events.jsonl', 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+          const states = events.map((x) => x.newState);
+          const expected = [
+            'ISSUED',
+            'PAYLOAD_STAGED',
+            'TX_RESERVED',
+            'TX_EXECUTED',
+            'PAYLOAD_RELEASED',
+          ];
+          if (JSON.stringify(states) !== JSON.stringify(expected)) {
+            throw new Error('unexpected S0 event sequence: ' + JSON.stringify(states));
+          }
+          if (events.some((x) => x.result !== 'SUCCESS')) {
+            throw new Error('successful S0 event log contains non-success result');
+          }
+          NODE
+
       - name: Remove protected execution key and stop local rail
         if: always()
         run: |
           rm -f "$PROTECTED_EXECUTION_KEY_FILE"
+          if [ -f out/release/provider/provider.pid ]; then
+            kill "$(cat out/release/provider/provider.pid)" 2>/dev/null || true
+          fi
           if [ -f out/release/local-evm/r-client-proxy.pid ]; then
             kill "$(cat out/release/local-evm/r-client-proxy.pid)" 2>/dev/null || true
           fi
