@@ -265,6 +265,24 @@ Expected: reject.
 
 Any successful A29-A34 result is an authority bypass even if E1/E2 correctly verify signatures.
 
+### A35 — duplicate nonce issuance
+
+Attempt to obtain two returned warrants under the same `issuer_key_id + nonce`.
+
+Expected: S0 registration permits at most one issued warrant identity.
+
+### A36 — execution-account substitution
+
+Use a valid warrant/envelope but attempt the protected transaction from an execution account different from the one committed in the envelope.
+
+Expected: E1 rejects; if an in-scope alternate account can produce the same protected business consequence outside E1, Gate Zero fails.
+
+### A37 — payload-recipient substitution
+
+Use the exact authorized payload bytes but attempt release/acceptance by a provider identity different from `payload.recipient`.
+
+Expected: E2/P rejects or the result is nonconformant.
+
 ## 11. Pass condition
 
 The catalogue passes only if:

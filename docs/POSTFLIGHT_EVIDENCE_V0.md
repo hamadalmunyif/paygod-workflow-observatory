@@ -101,6 +101,7 @@ A failed E2 stage means E1 must not be authorized to proceed.
 - domain/time result;
 - transition commitment result;
 - chain/system observed;
+- execution account observed;
 - target observed;
 - calldata digest observed;
 - native value observed;
@@ -118,6 +119,7 @@ If E1 submits a transaction, the bundle must preserve:
 - transaction receipt when available;
 - chain id;
 - block number/hash or equivalent;
+- sender/execution account;
 - target;
 - transaction input/calldata as observed from the external chain source;
 - value;
@@ -143,6 +145,7 @@ These labels do not independently authenticate the external provider or payload 
 `e2-release.json` records:
 
 - staged payload digest;
+- committed provider/recipient identity;
 - transaction/instance evidence consumed by E2;
 - transition commitment;
 - job/instance context;
@@ -161,6 +164,7 @@ At minimum:
 
 - payload bytes digest;
 - content type;
+- provider/recipient identity;
 - transition/instance context;
 - observation timestamp under the declared harness time source.
 

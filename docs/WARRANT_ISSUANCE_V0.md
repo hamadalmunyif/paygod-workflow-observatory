@@ -77,17 +77,41 @@ Requirements:
 - E1 and E2 receive only the corresponding trusted public key;
 - the key is used only for controlled-harness Warrant v0 issuance.
 
-The exact signature algorithm must be fixed before implementation and recorded in the detached signature artifact.
+The controlled v0 profile fixes the issuer algorithm to `Ed25519`.
+
+The exact representation and signing profile are defined in `CONTROLLED_HARNESS_IMPLEMENTATION_PROFILE_V0.md`.
 
 ## 6. issuer_key_id
 
-For v0, `issuer_key_id` must be deterministically derived from the exact trusted public-key bytes under a documented profile.
+For v0, `issuer_key_id` is derived from the exact Ed25519 DER SubjectPublicKeyInfo bytes as:
 
-The selected derivation profile must be frozen before code.
+`ed25519-spki-sha256:<sha256-hex>`
+
+The full byte/encoding profile is frozen in `CONTROLLED_HARNESS_IMPLEMENTATION_PROFILE_V0.md`.
 
 No human-readable alias alone may establish issuer identity.
 
-## 7. Trusted issuer configuration
+## 7. S0 issuance registration
+
+A Warrant is not considered issued until the signed body is successfully registered in S0.
+
+After signing, I submits:
+
+- issuer key id;
+- nonce;
+- transition commitment;
+- enforcement domain;
+- not-before;
+- expires-at;
+- warrant-body digest.
+
+S0 atomically creates the `ISSUED` record only if `issuer_key_id + nonce` is unused.
+
+I returns the Warrant artifacts to C only after that registration succeeds.
+
+This prevents two independently returned warrants from silently sharing the same nonce identity.
+
+## 8. Trusted issuer configuration
 
 E1 and E2 use a pinned, read-only trusted-issuer configuration.
 
@@ -100,7 +124,7 @@ The client must not have a supported runtime path to:
 
 Attempting to modify the trusted set is part of the frozen attack catalogue.
 
-## 8. Key compromise boundary
+## 9. Key compromise boundary
 
 If the trusted issuer private key is compromised, the v0 issuer epoch is considered totally compromised.
 
@@ -117,7 +141,7 @@ Production topics such as:
 
 remain future work.
 
-## 9. Issuance attacks
+## 10. Issuance attacks
 
 The controlled harness must add the following tests before implementation:
 
@@ -157,7 +181,7 @@ Attempt to make the issuer sign arbitrary bytes or a caller-supplied commitment 
 
 Expected: reject.
 
-## 10. Claim boundary
+## 11. Claim boundary
 
 Passing issuance tests proves only that the controlled issuer did not behave as an open mint under T0.
 

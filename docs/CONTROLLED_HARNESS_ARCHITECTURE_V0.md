@@ -201,6 +201,7 @@ Before moving from `PAYLOAD_STAGED` toward execution, E1 must verify:
 - all Warrant validity conditions;
 - same transition commitment as the staged payload;
 - exact chain/system;
+- exact execution account;
 - exact target;
 - exact calldata bytes;
 - exact native value;

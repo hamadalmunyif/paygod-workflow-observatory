@@ -47,6 +47,12 @@ A nonce may never be rebound to a different transition commitment.
 
 ## 4. State machine
 
+Record creation occurs only through the frozen issuance-registration path.
+
+A valid issuer registration atomically creates the record in `ISSUED`.
+
+A duplicate `issuer_key_id + nonce` registration is rejected before the warrant is returned to the client.
+
 Allowed states:
 
 ```text
@@ -77,7 +83,23 @@ Terminal/failure states:
 
 State transitions are monotonic. No API may move a record backward.
 
-## 5. When the nonce is consumed
+## 5. ISSUED registration
+
+The issuer registers:
+
+- issuer key id;
+- nonce;
+- transition commitment;
+- enforcement domain;
+- not-before;
+- expires-at;
+- warrant-body digest.
+
+S0 creates `ISSUED` only if the primary identity does not already exist.
+
+This registration is part of issuance. A detached signature without successful S0 registration is not an issued harness warrant.
+
+## 6. When the nonce is consumed
 
 The nonce becomes irrevocably consumed when S0 atomically transitions:
 
@@ -94,7 +116,7 @@ This conservative rule avoids ambiguity about whether a failed or partially subm
 
 A new attempt requires a new nonce and, where appropriate, a new warrant.
 
-## 6. Payload staging
+## 7. Payload staging
 
 `ISSUED -> PAYLOAD_STAGED` may occur only after E2 verifies:
 
@@ -111,7 +133,7 @@ The staged bytes are immutable for that state record.
 
 A second staging attempt with different bytes for the same nonce is rejected.
 
-## 7. Transaction reservation
+## 8. Transaction reservation
 
 E1 requests the transition:
 
@@ -130,7 +152,7 @@ The conditional update succeeds only if:
 
 Two concurrent reservations for the same nonce must yield at most one success.
 
-## 8. Transaction result
+## 9. Transaction result
 
 After transaction submission:
 
@@ -140,7 +162,7 @@ After transaction submission:
 
 The nonce remains consumed in all cases after `TX_RESERVED`.
 
-## 9. Payload release
+## 10. Payload release
 
 E2 may move:
 
@@ -152,7 +174,7 @@ E2 then releases the exact previously staged payload bytes to the controlled pro
 
 No client-supplied replacement bytes are accepted at release time.
 
-## 10. Conformance
+## 11. Conformance
 
 `PAYLOAD_RELEASED -> CONFORMANT`
 
@@ -160,7 +182,7 @@ requires the post-flight conformance checks defined by `POSTFLIGHT_EVIDENCE_V0.m
 
 A transaction that exists on-chain without successful payload release must never be labeled `CONFORMANT`.
 
-## 11. Restart test
+## 12. Restart test
 
 A required attack test is:
 
@@ -171,7 +193,7 @@ A required attack test is:
 
 Passing this test supports restart persistence only for the tested SQLite/persistent-volume boundary.
 
-## 12. Rollback/reset test
+## 13. Rollback/reset test
 
 The attack catalogue must attempt every reset/rollback path available to the client under T0.
 
@@ -187,7 +209,7 @@ then the authority claim fails for T0.
 
 Host/root compromise outside the frozen T0 boundary remains a declared assumption, not a tested negative.
 
-## 13. Administrative reset
+## 14. Administrative reset
 
 The controlled harness may have an operator-only destructive reset for test setup.
 
@@ -200,7 +222,7 @@ It must be:
 
 A witness run performed after an administrative reset starts a new test epoch and cannot claim continuity with prior nonce history.
 
-## 14. Claim boundary
+## 15. Claim boundary
 
 This design can establish only:
 
