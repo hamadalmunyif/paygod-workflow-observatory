@@ -25,6 +25,11 @@ spec:
         decision: "deny"
         reason: "Request is not locally admitted under the frozen request-identity path."
 
+      - name: "deny-attempt-not-bound"
+        condition: "not input.request.attempt_id or not input.request.attempt_commitment_sha256"
+        decision: "deny"
+        reason: "Release decision requires an explicit frozen request-attempt binding."
+
       - name: "deny-request-transition-mismatch"
         condition: "input.request.admitted_request_identity_sha256 != input.transition.request_identity_sha256"
         decision: "deny"
@@ -56,6 +61,6 @@ spec:
         reason: "Transition commitment or one of the declared enforcement-surface bindings is missing."
 
       - name: "controlled-local-release"
-        condition: "input.request.status == 'CANDIDATE_LOCAL_VALIDATED' and input.request.schema_validation == 'LOCAL_VALIDATED' and input.request.admitted_request_identity_sha256 == input.transition.request_identity_sha256 and input.request.request_payload_sha256 == input.transition.payload.payload_sha256 and input.transition.system == 'evm' and input.transition.chain_id == 31337 and input.authority.enforcement_domain == 'controlled-harness/t0-v0' and input.authority.local_only == true and input.authority.external_execution_authorized == false"
+        condition: "input.request.status == 'CANDIDATE_LOCAL_VALIDATED' and input.request.schema_validation == 'LOCAL_VALIDATED' and input.request.attempt_id and input.request.attempt_commitment_sha256 and input.request.admitted_request_identity_sha256 == input.transition.request_identity_sha256 and input.request.request_payload_sha256 == input.transition.payload.payload_sha256 and input.transition.system == 'evm' and input.transition.chain_id == 31337 and input.authority.enforcement_domain == 'controlled-harness/t0-v0' and input.authority.local_only == true and input.authority.external_execution_authorized == false"
         decision: "allow"
         reason: "Controlled local transition is eligible for Warrant v0 issuance within T0 only."
