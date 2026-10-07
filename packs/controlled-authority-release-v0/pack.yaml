@@ -30,6 +30,11 @@ spec:
         decision: "deny"
         reason: "Transition is not bound to the admitted request identity."
 
+      - name: "deny-request-payload-mismatch"
+        condition: "input.request.request_payload_sha256 != input.transition.payload.payload_sha256"
+        decision: "deny"
+        reason: "Transition payload is not the exact frozen request payload."
+
       - name: "deny-nonlocal-system"
         condition: "input.transition.system != 'evm' or input.transition.chain_id != 31337"
         decision: "deny"
@@ -51,6 +56,6 @@ spec:
         reason: "Transition commitment or one of the declared enforcement-surface bindings is missing."
 
       - name: "controlled-local-release"
-        condition: "input.request.status == 'CANDIDATE_LOCAL_VALIDATED' and input.request.schema_validation == 'LOCAL_VALIDATED' and input.request.admitted_request_identity_sha256 == input.transition.request_identity_sha256 and input.transition.system == 'evm' and input.transition.chain_id == 31337 and input.authority.enforcement_domain == 'controlled-harness/t0-v0' and input.authority.local_only == true and input.authority.external_execution_authorized == false"
+        condition: "input.request.status == 'CANDIDATE_LOCAL_VALIDATED' and input.request.schema_validation == 'LOCAL_VALIDATED' and input.request.admitted_request_identity_sha256 == input.transition.request_identity_sha256 and input.request.request_payload_sha256 == input.transition.payload.payload_sha256 and input.transition.system == 'evm' and input.transition.chain_id == 31337 and input.authority.enforcement_domain == 'controlled-harness/t0-v0' and input.authority.local_only == true and input.authority.external_execution_authorized == false"
         decision: "allow"
         reason: "Controlled local transition is eligible for Warrant v0 issuance within T0 only."
