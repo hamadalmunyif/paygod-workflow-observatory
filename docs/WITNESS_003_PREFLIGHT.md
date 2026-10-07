@@ -1,8 +1,12 @@
 # Witness 003 — PRE-FLIGHT consequence model
 
-Status: **ANALYSIS ONLY**
+Status: **ANALYSIS ONLY — AUTHORITY PREFLIGHT CONTRACTS FROZEN**
 
-Witness 002b is closed. Witness 003-LIVE remains **NOT AUTHORIZED**.
+Witness 002b is closed.
+
+Witness 003-LIVE against Quiver is **REJECTED IN ITS CURRENT FORM**.
+
+No live ACP action is authorized by this document.
 
 This document records what is source-proven about `acp client create-job` before any Agent, Signer, Job, funding, signing, or external execution is allowed.
 
@@ -311,7 +315,24 @@ Classification:
 - true reversal of job creation: not established
 - operational cleanup/cancellation semantics: `UNKNOWN`
 
-## 13. Current PRE-FLIGHT decision
+## 13. Authority-preflight contracts frozen after this analysis
+
+The following contracts are now frozen before any controlled harness implementation:
+
+- `THREAT_MODEL_T0.md`
+- `ATTACK_CATALOGUE_V0.md`
+- `TRANSITION_ENVELOPE_V0.md`
+- `WARRANT_V0.md`
+
+The controlled experiment must be designed to falsify these contracts, not to demonstrate a preselected success.
+
+The strongest future result permitted by these contracts is:
+
+> Controlled conditional release was runtime-observed under Threat Model T0 across the declared enforcement surfaces.
+
+No global non-bypassability claim is permitted.
+
+## 14. Current PRE-FLIGHT decision
 
 ### Proven enough to say
 
@@ -332,11 +353,12 @@ The following remain unresolved:
 7. whether the local `attempt_id` can be externally observed without changing the request;
 8. cleanup/reversal semantics after a created job.
 
-## 14. Authorization state
+## 15. Authorization state
 
 - Witness 002b: **CLOSED / SUCCESS**
-- Witness 003-PREFLIGHT: **IN PROGRESS**
-- Witness 003-LIVE: **NOT AUTHORIZED**
+- Witness 003-PREFLIGHT: **IN PROGRESS — authority contracts frozen**
+- Witness 003-LIVE against Quiver: **REJECTED IN CURRENT FORM**
+- Controlled two-party harness: **NOT YET AUTHORIZED; specification only**
 - ACP Agent creation: **NOT AUTHORIZED**
 - Signer creation/registration: **NOT AUTHORIZED**
 - Job creation: **NOT AUTHORIZED**
@@ -344,23 +366,18 @@ The following remain unresolved:
 - Signing: **NOT AUTHORIZED**
 - Transaction submission: **NOT AUTHORIZED**
 
-## 15. Next safe work
+## 16. Next safe work
 
-The next work remains analysis-only:
+The next work remains non-live:
 
-1. determine exact gas sponsorship/paymaster behavior and bound maximum exposure;
-2. determine whether target offering/provider exists on testnet without creating state;
-3. define the exact artifact bytes that would be frozen immediately before submission;
-4. define post-create readback evidence:
-   - transaction hash;
-   - chain id;
-   - job id;
-   - on-chain job fields;
-   - first `requirement` history entry;
-   - exact byte comparison;
-5. predefine the binding result:
-   - `EXACT_OBSERVED` only on exact equality;
-   - otherwise `CORRELATED_ONLY`;
-6. stop and request explicit authorization before any action that creates Agent, Signer, Job, or transaction.
+1. review the four frozen authority-preflight contracts for internal consistency;
+2. define the controlled two-party harness architecture without creating either party;
+3. choose and document two enforcement surfaces:
+   - E1 transaction/calldata enforcement;
+   - E2 requirement-payload enforcement;
+4. choose the single-use nonce-state location and document rollback/reset authority;
+5. choose the issuer-key trust model for the controlled experiment;
+6. design post-flight readback evidence without executing it;
+7. only after those are frozen, decide whether implementation of the controlled harness is authorized.
 
-No live action is implied by this document.
+No Agent, Signer, Job, funding, signing, transaction submission, or provider interaction is implied by this document.
