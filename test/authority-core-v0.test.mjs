@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { generateKeyPairSync } from "node:crypto";
+import { spawn } from "node:child_process";
 
 import { AuthorityError } from "../src/authority-error.mjs";
 import { sha256Bytes } from "../src/digest.mjs";
@@ -580,6 +581,130 @@ test(
     assert.equal(conformant.state, "CONFORMANT");
 
     store.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+);
+
+
+test(
+  "A14 concurrent double use allows at most one TX_RESERVED transition",
+  { skip: !sqliteAvailable },
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "paygod-s0-race-"));
+    const dbPath = path.join(dir, "authority.db");
+    const now = 1_800_000_000_000;
+    const transition = baselineTransition();
+    const { publicKey } = generateIssuerKeyPairV0();
+    const issuerKeyId = issuerKeyIdFromPublicKey(publicKey);
+    const nonce = "ab".repeat(32);
+    const warrant = buildWarrantBodyV0({
+      transitionCommitment: transition.transitionCommitment,
+      notBefore: now,
+      expiresAt: now + 60_000,
+      nonce,
+      issuerKeyId,
+    });
+
+    let store = await openAuthorityStateStoreV0(dbPath, { now: () => now });
+    store.registerIssued({
+      issuerKeyId,
+      nonce,
+      transitionCommitment: transition.transitionCommitment,
+      enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      notBefore: warrant.body.not_before,
+      expiresAt: warrant.body.expires_at,
+      warrantBodySha256: warrant.bodySha256,
+    });
+    store.stagePayloadExact({
+      issuerKeyId,
+      nonce,
+      transitionCommitment: transition.transitionCommitment,
+      enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      warrantBodySha256: warrant.bodySha256,
+      payloadBytes,
+      payloadChannel: "controlled-requirement-message/v0",
+      payloadRecipient: provider,
+      payloadContentType: "requirement",
+    });
+    store.close();
+
+    const startPath = path.join(dir, "start");
+    const racers = [0, 1].map((index) => {
+      const readyPath = path.join(dir, `ready-${index}`);
+      const outputPath = path.join(dir, `result-${index}.json`);
+      const child = spawn(
+        process.execPath,
+        ["scripts/s0-reserve-racer-v0.mjs"],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            S0_DB_PATH: dbPath,
+            S0_ISSUER_KEY_ID: issuerKeyId,
+            S0_NONCE: nonce,
+            S0_TRANSITION_COMMITMENT: transition.transitionCommitment,
+            S0_ENFORCEMENT_DOMAIN: CONTROLLED_ENFORCEMENT_DOMAIN,
+            S0_WARRANT_BODY_SHA256: warrant.bodySha256,
+            S0_RACE_READY_PATH: readyPath,
+            S0_RACE_START_PATH: startPath,
+            S0_RACE_OUTPUT_PATH: outputPath,
+            S0_NOW_MS: String(now),
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        }
+      );
+      return { child, readyPath, outputPath };
+    });
+
+    const waitForFile = async (filePath) => {
+      for (let i = 0; i < 500; i++) {
+        try {
+          await fs.access(filePath);
+          return;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+      throw new Error("race child did not become ready: " + filePath);
+    };
+
+    await Promise.all(racers.map((racer) => waitForFile(racer.readyPath)));
+    await fs.writeFile(startPath, "go\n", "utf8");
+
+    await Promise.all(
+      racers.map(
+        ({ child }) =>
+          new Promise((resolve, reject) => {
+            let stderr = "";
+            child.stderr.on("data", (chunk) => {
+              stderr += chunk.toString();
+            });
+            child.on("error", reject);
+            child.on("exit", (code) => {
+              if (code === 0) resolve();
+              else reject(new Error("race child failed: " + stderr));
+            });
+          })
+      )
+    );
+
+    const results = await Promise.all(
+      racers.map((racer) =>
+        fs.readFile(racer.outputPath, "utf8").then(JSON.parse)
+      )
+    );
+    const successes = results.filter((result) => result.status === "RESERVED");
+    const rejections = results.filter((result) => result.status === "REJECTED");
+
+    assert.equal(successes.length, 1, JSON.stringify(results));
+    assert.equal(rejections.length, 1, JSON.stringify(results));
+
+    store = await openAuthorityStateStoreV0(dbPath, { now: () => now });
+    const final = store.get({ issuerKeyId, nonce });
+    assert.equal(final.state, "TX_RESERVED");
+    assert.equal(final.consumedAt, now);
+    store.close();
+
     await fs.rm(dir, { recursive: true, force: true });
   }
 );
