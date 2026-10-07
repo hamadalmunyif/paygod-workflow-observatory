@@ -166,6 +166,44 @@ jobs:
             --output out/release/transition-envelope.json \
             --proposal-output out/release/local-evm/transaction-proposal.json
 
+      - name: Start loopback-only controlled provider P
+        env:
+          PROVIDER_HOST: "127.0.0.1"
+          PROVIDER_PORT: "18547"
+          PROVIDER_IDENTITY: "0x3333333333333333333333333333333333333333"
+          PROVIDER_OUTPUT_DIR: "out/release/provider"
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/provider
+          node scripts/provider-worker-v0.mjs             > out/release/provider/provider.log 2>&1 &
+          echo "$!" > out/release/provider/provider.pid
+
+          for i in $(seq 1 30); do
+            if [ -f out/release/provider/provider-ready.json ]; then
+              break
+            fi
+            sleep 0.2
+          done
+          test -f out/release/provider/provider-ready.json
+          jq -e '
+            .host == "127.0.0.1" and
+            .port == 18547 and
+            .provider_identity == "0x3333333333333333333333333333333333333333"
+          ' out/release/provider/provider-ready.json >/dev/null
+
+      - name: A18 probe provider ingress from adversarial C
+        env:
+          CLIENT_IMAGE: "node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8"
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/provider-attack
+
+          docker run --rm             --add-host=harness-host:host-gateway             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/provider-ingress-probe-v0.mjs,dst=/work/provider-ingress-probe-v0.mjs,readonly"             --mount "type=bind,src=$GITHUB_WORKSPACE/out/release/provider-attack,dst=/work/out"             -e PROVIDER_URL="http://harness-host:18547/release"             -e PROVIDER_PROBE_OUTPUT="/work/out/provider-ingress-probe.json"             "$CLIENT_IMAGE"             node /work/provider-ingress-probe-v0.mjs
+
+          jq -e '.reachable == false'             out/release/provider-attack/provider-ingress-probe.json >/dev/null
+          test ! -f out/release/provider/provider-observation.json
+          test ! -f out/release/provider/provider-received-payload.bin
+
       - name: Start fail-closed R-client proxy
         env:
           RPC_UPSTREAM_URL: "http://127.0.0.1:18545"
@@ -887,10 +925,117 @@ jobs:
             --client-image out/release/local-evm/client-container-image.txt \
             --output out/release/gate-zero-t0/result.json
 
+      - name: Release exact staged payload through E2 to provider P
+        run: |
+          node scripts/release-controlled-e2-provider-v0.mjs             --warrant-body out/release/warrant/warrant-body.json             --warrant-signature out/release/warrant/warrant.sig             --warrant-trust-store out/release/warrant-issuer-trust.json             --transition-envelope out/release/transition-envelope.json             --transaction-proposal out/release/local-evm/transaction-proposal.json             --tx-evidence out/release/e1/tx-evidence.json             --state-db out/release/authority-state.db             --rpc-url "$LOCAL_RPC_URL"             --provider-url "http://127.0.0.1:18547/release"             --output-dir out/release/postflight
+
+      - name: Assert E2 provider release stops at PAYLOAD_RELEASED
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
+
+          const release = JSON.parse(
+            fs.readFileSync('out/release/postflight/e2-release.json', 'utf8')
+          );
+          const binding = JSON.parse(
+            fs.readFileSync('out/release/postflight/instance-binding.json', 'utf8')
+          );
+          const observation = JSON.parse(
+            fs.readFileSync('out/release/provider/provider-observation.json', 'utf8')
+          );
+          const warrant = JSON.parse(
+            fs.readFileSync('out/release/warrant/warrant-body.json', 'utf8')
+          );
+          const staged = fs.readFileSync('out/release/e2/staged-payload.bin');
+          const released = fs.readFileSync('out/release/postflight/released-payload.bin');
+          const received = fs.readFileSync('out/release/provider/provider-received-payload.bin');
+
+          const sha = (bytes) =>
+            crypto.createHash('sha256').update(bytes).digest('hex');
+
+          if (
+            release.status !== 'PAYLOAD_RELEASED_PROVIDER_OBSERVED' ||
+            release.s0_state !== 'PAYLOAD_RELEASED'
+          ) {
+            throw new Error('E2 provider release did not stop at PAYLOAD_RELEASED');
+          }
+          if (binding.classification !== 'INSTANCE_DERIVED_FROM_MATCHING_EXECUTION') {
+            throw new Error('job instance was not derived from matching execution');
+          }
+          if (!staged.equals(released) || !staged.equals(received)) {
+            throw new Error('staged/released/provider-received payload bytes differ');
+          }
+          if (
+            sha(staged) !== release.staged_payload_sha256 ||
+            sha(received) !== observation.payload_sha256
+          ) {
+            throw new Error('provider/release payload digest mismatch');
+          }
+          if (
+            observation.transition_commitment !== release.transition_commitment ||
+            observation.derived_job_id !== release.derived_job_id ||
+            observation.transaction_hash !== release.transaction_hash ||
+            observation.provider_identity !== release.payload_recipient
+          ) {
+            throw new Error('provider observation context mismatch');
+          }
+
+          const store = await openAuthorityStateStoreV0(
+            'out/release/authority-state.db'
+          );
+          try {
+            const row = store.get({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            if (row?.state !== 'PAYLOAD_RELEASED') {
+              throw new Error('S0 did not persist PAYLOAD_RELEASED');
+            }
+            const events = store.listEvents({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            const states = events.map((event) => event.newState);
+            const expected = [
+              'ISSUED',
+              'PAYLOAD_STAGED',
+              'TX_RESERVED',
+              'TX_EXECUTED',
+              'PAYLOAD_RELEASED',
+            ];
+            if (JSON.stringify(states) !== JSON.stringify(expected)) {
+              throw new Error(
+                'authority event sequence before V is not exact: ' +
+                  JSON.stringify(states)
+              );
+            }
+            if (states.includes('CONFORMANT')) {
+              throw new Error('E2/provider slice must not mark CONFORMANT');
+            }
+          } finally {
+            store.close();
+          }
+
+          console.log(JSON.stringify({
+            status: release.status,
+            derivedJobId: release.derived_job_id,
+            transactionHash: release.transaction_hash,
+            payloadSha256: release.staged_payload_sha256,
+            providerObserved: true,
+            s0State: release.s0_state,
+            conformantMarked: false,
+          }, null, 2));
+          NODE
+
       - name: Remove protected execution key and stop local rail
         if: always()
         run: |
           rm -f "$PROTECTED_EXECUTION_KEY_FILE"
+          if [ -f out/release/provider/provider.pid ]; then
+            kill "$(cat out/release/provider/provider.pid)" 2>/dev/null || true
+          fi
           if [ -f out/release/local-evm/r-client-proxy.pid ]; then
             kill "$(cat out/release/local-evm/r-client-proxy.pid)" 2>/dev/null || true
           fi
