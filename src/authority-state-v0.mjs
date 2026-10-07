@@ -199,7 +199,7 @@ export class AuthorityStateStoreV0 {
     });
   }
 
-  _assertBinding(row, { transitionCommitment, enforcementDomain }) {
+  _assertBinding(row, { transitionCommitment, enforcementDomain, warrantBodySha256 = null }) {
     if (!row) {
       authorityFail("S0_RECORD_NOT_FOUND", "authority state record was not found");
     }
@@ -213,6 +213,15 @@ export class AuthorityStateStoreV0 {
       authorityFail(
         "S0_DOMAIN_MISMATCH",
         "enforcement domain differs from the registered warrant"
+      );
+    }
+    if (
+      warrantBodySha256 !== null &&
+      row.warrant_body_sha256 !== warrantBodySha256
+    ) {
+      authorityFail(
+        "S0_WARRANT_BODY_DIGEST_MISMATCH",
+        "warrant body digest differs from the registered warrant"
       );
     }
   }
@@ -231,16 +240,26 @@ export class AuthorityStateStoreV0 {
     nonce,
     transitionCommitment,
     enforcementDomain,
+    warrantBodySha256,
     payloadSha256,
   }) {
     requireIssuerKeyId(issuerKeyId);
     requireNonce(nonce);
+    requireSha256(
+      warrantBodySha256,
+      "S0_WARRANT_BODY_DIGEST_INVALID",
+      "warrant_body_sha256"
+    );
     requireSha256(payloadSha256, "S0_PAYLOAD_DIGEST_INVALID", "payload_sha256");
     const now = requireTime(this.now(), "S0_NOW_INVALID", "harness time");
 
     return this._transaction(() => {
       const row = this._select(issuerKeyId, nonce);
-      this._assertBinding(row, { transitionCommitment, enforcementDomain });
+      this._assertBinding(row, {
+        transitionCommitment,
+        enforcementDomain,
+        warrantBodySha256,
+      });
       this._assertValidTime(row, now);
       if (row.state !== "ISSUED") {
         authorityFail(
@@ -266,14 +285,24 @@ export class AuthorityStateStoreV0 {
     nonce,
     transitionCommitment,
     enforcementDomain,
+    warrantBodySha256,
   }) {
     requireIssuerKeyId(issuerKeyId);
     requireNonce(nonce);
+    requireSha256(
+      warrantBodySha256,
+      "S0_WARRANT_BODY_DIGEST_INVALID",
+      "warrant_body_sha256"
+    );
     const now = requireTime(this.now(), "S0_NOW_INVALID", "harness time");
 
     return this._transaction(() => {
       const row = this._select(issuerKeyId, nonce);
-      this._assertBinding(row, { transitionCommitment, enforcementDomain });
+      this._assertBinding(row, {
+        transitionCommitment,
+        enforcementDomain,
+        warrantBodySha256,
+      });
       this._assertValidTime(row, now);
       if (row.state !== "PAYLOAD_STAGED") {
         authorityFail(

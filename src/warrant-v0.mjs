@@ -51,7 +51,22 @@ export function generateIssuerKeyPairV0() {
   return generateKeyPairSync("ed25519");
 }
 
+function requireEd25519PublicKey(publicKey, code = "WARRANT_ISSUER_KEY_TYPE_INVALID") {
+  if (!publicKey || publicKey.asymmetricKeyType !== "ed25519") {
+    authorityFail(code, "issuer public key must be Ed25519");
+  }
+  return publicKey;
+}
+
+function requireEd25519PrivateKey(privateKey) {
+  if (!privateKey || privateKey.asymmetricKeyType !== "ed25519") {
+    authorityFail("WARRANT_SIGNING_KEY_TYPE_INVALID", "issuer private key must be Ed25519");
+  }
+  return privateKey;
+}
+
 export function exportIssuerPublicKeySpkiDer(publicKey) {
+  requireEd25519PublicKey(publicKey);
   return Buffer.from(
     publicKey.export({
       type: "spki",
@@ -62,6 +77,17 @@ export function exportIssuerPublicKeySpkiDer(publicKey) {
 
 export function issuerKeyIdFromSpkiDer(spkiDer) {
   const bytes = asBuffer(spkiDer, "spkiDer");
+  let publicKey;
+  try {
+    publicKey = createPublicKey({
+      key: bytes,
+      format: "der",
+      type: "spki",
+    });
+  } catch {
+    authorityFail("WARRANT_ISSUER_SPKI_INVALID", "trusted issuer SPKI is invalid");
+  }
+  requireEd25519PublicKey(publicKey);
   return `ed25519-spki-sha256:${sha256Bytes(bytes)}`;
 }
 
@@ -206,6 +232,8 @@ export function signWarrantBodyV0({
   publicKey,
 }) {
   const parsed = parseExactWarrantBodyV0(bodyBytes);
+  requireEd25519PrivateKey(privateKey);
+  requireEd25519PublicKey(publicKey);
   const expectedIssuerKeyId = issuerKeyIdFromPublicKey(publicKey);
   if (parsed.body.issuer_key_id !== expectedIssuerKeyId) {
     authorityFail(
@@ -215,6 +243,12 @@ export function signWarrantBodyV0({
   }
 
   const signature = cryptoSign(null, parsed.bytes, privateKey);
+  if (!cryptoVerify(null, parsed.bytes, publicKey, signature)) {
+    authorityFail(
+      "WARRANT_SIGNING_KEYPAIR_MISMATCH",
+      "issuer private/public key pair does not match"
+    );
+  }
   const signatureArtifact = buildWarrantSignatureArtifactV0({
     issuerKeyId: expectedIssuerKeyId,
     signature,
@@ -285,11 +319,17 @@ export function verifyWarrantV0({
     );
   }
 
-  const publicKey = createPublicKey({
-    key: derBytes,
-    format: "der",
-    type: "spki",
-  });
+  let publicKey;
+  try {
+    publicKey = createPublicKey({
+      key: derBytes,
+      format: "der",
+      type: "spki",
+    });
+  } catch {
+    authorityFail("WARRANT_TRUST_KEY_INVALID", "trusted issuer public key is invalid");
+  }
+  requireEd25519PublicKey(publicKey, "WARRANT_TRUST_KEY_TYPE_INVALID");
   const ok = cryptoVerify(null, body.bytes, publicKey, sig.signature);
   if (!ok) {
     authorityFail("WARRANT_SIGNATURE_INVALID", "warrant signature verification failed");

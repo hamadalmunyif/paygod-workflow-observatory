@@ -41,7 +41,7 @@ No verifier may reconstruct or re-serialize the body and silently treat differen
 ```json
 {
   "schema": "paygod/warrant/v0",
-  "enforcement_domain": "controlled-acp/t0",
+  "enforcement_domain": "controlled-harness/t0-v0",
   "transition_commitment": "<sha256>",
   "not_before": "<time>",
   "expires_at": "<time>",
@@ -99,6 +99,8 @@ Replay after consumption must fail.
 
 Concurrent double use must allow at most one success.
 
+A valid detached signature alone is insufficient in the controlled harness. The exact Warrant body must match a successful S0 `ISSUED` registration.
+
 ## 8. Issuer key
 
 `issuer_key_id` identifies the public key the verifier is configured to trust.
@@ -127,7 +129,10 @@ A v0 enforcement verifier must:
 5. verify the validity time window under the declared time source;
 6. verify that the referenced transition envelope bytes hash to `transition_commitment`;
 7. verify the verifier's own execution surface against that envelope;
-8. atomically verify-and-consume the nonce before authorizing the protected transition.
+8. verify that the exact warrant-body digest matches the S0 registration;
+9. enforce the verifier's assigned state-machine role.
+
+For the controlled harness, E2 validates and stages but does not consume the nonce. E1 is the designated consuming enforcer: the atomic `PAYLOAD_STAGED -> TX_RESERVED` transition consumes it.
 
 The verifier must not need to evaluate PayGod evidence or rerun PayGod policy.
 
