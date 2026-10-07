@@ -204,3 +204,20 @@ This boundary can support statements about:
 - observed resistance to frozen attack paths under T0.
 
 It cannot support an absolute statement that the client can never read/export/replace a key under all possible host compromises.
+
+
+## 14. E2 trust and staged-byte boundary
+
+E2 receives the Warrant issuer public trust configuration from the harness/operator boundary, not from C and not from the Warrant producer.
+
+E2 has constrained access to S0's exact staging operation.
+
+C has no direct SQL/filesystem access to:
+
+- the S0 database;
+- staged payload bytes;
+- Warrant issuer trust configuration.
+
+The controlled witness deletes D and Warrant-issuer private keys before E2 staging.
+
+A future separated C runtime must still test configuration substitution and direct S0 access; this local workflow does not convert those negative claims into universal proof.
