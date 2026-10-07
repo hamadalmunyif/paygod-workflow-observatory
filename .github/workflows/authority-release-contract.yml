@@ -46,9 +46,124 @@ jobs:
         run: |
           node scripts/build-shadow-request.mjs             --raw out/release/observation-pack/raw.json             --normalized out/release/observation-pack/normalized.json             --manifest out/release/observation-pack/manifest.json             --request-identity out/release/request-identity.json             --offering "$OFFERING_NAME"             --output out/release/request-shadow.json
 
-      - name: Build local Transition Envelope
+      - name: Install pinned local EVM toolchain
         run: |
-          node scripts/build-controlled-transition-fixture.mjs             --request-shadow out/release/request-shadow.json             --output out/release/transition-envelope.json
+          set -euo pipefail
+          FOUNDRY_DIR="${RUNNER_TEMP}/foundry-v1.8.5"
+          FOUNDRY_ARCHIVE="${RUNNER_TEMP}/foundry_v1.8.5_linux_amd64.tar.gz"
+          SOLC_BIN="${RUNNER_TEMP}/solc-0.8.30"
+          mkdir -p "$FOUNDRY_DIR"
+
+          curl -L --fail --retry 3 \
+            -o "$FOUNDRY_ARCHIVE" \
+            "https://github.com/foundry-rs/foundry/releases/download/v1.8.5/foundry_v1.8.5_linux_amd64.tar.gz"
+          echo "6c66ffcc55fa4249197721baa3098bc208014ea1d8aa04b2ed50ac6bccffb226  $FOUNDRY_ARCHIVE" | sha256sum -c -
+          tar -xzf "$FOUNDRY_ARCHIVE" -C "$FOUNDRY_DIR"
+          echo "$FOUNDRY_DIR" >> "$GITHUB_PATH"
+
+          curl -L --fail --retry 3 \
+            -o "$SOLC_BIN" \
+            "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.30+commit.73712a01"
+          echo "f3e987dc6ecebd4bd350c48edcbc320b46cf9e3109bd3fc3d88f1acaf4c428f7  $SOLC_BIN" | sha256sum -c -
+          chmod +x "$SOLC_BIN"
+          echo "SOLC_BIN=$SOLC_BIN" >> "$GITHUB_ENV"
+          echo "LOCAL_RPC_URL=http://127.0.0.1:18545" >> "$GITHUB_ENV"
+          echo "PROTECTED_EXECUTION_KEY_FILE=${RUNNER_TEMP}/paygod-protected-execution-key.txt" >> "$GITHUB_ENV"
+
+      - name: Start pinned local Anvil
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/local-evm
+          anvil \
+            --host 127.0.0.1 \
+            --port 18545 \
+            --chain-id 31337 \
+            --silent \
+            > out/release/local-evm/anvil.log 2>&1 &
+          echo "$!" > out/release/local-evm/anvil.pid
+
+          for i in $(seq 1 30); do
+            if cast chain-id --rpc-url "$LOCAL_RPC_URL" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.2
+          done
+
+          test "$(cast chain-id --rpc-url "$LOCAL_RPC_URL")" = "31337"
+
+      - name: Create protected account and deploy surrogate rail
+        run: |
+          set -euo pipefail
+
+          for i in $(seq 1 5); do
+            printf '0x%s' "$(openssl rand -hex 32)" > "$PROTECTED_EXECUTION_KEY_FILE"
+            chmod 600 "$PROTECTED_EXECUTION_KEY_FILE"
+            if PROTECTED_ADDR="$(cast wallet address --private-key "$(cat "$PROTECTED_EXECUTION_KEY_FILE")" 2>/dev/null)"; then
+              break
+            fi
+          done
+          PROTECTED_ADDR="$(echo "$PROTECTED_ADDR" | tr '[:upper:]' '[:lower:]')"
+          echo "PROTECTED_EXECUTION_ACCOUNT=$PROTECTED_ADDR" >> "$GITHUB_ENV"
+          printf '%s\n' "$PROTECTED_ADDR" > out/release/local-evm/protected-execution-account.txt
+
+          DEPLOYER="$(curl -fsS -H 'content-type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"eth_accounts","params":[]}' \
+            "$LOCAL_RPC_URL" | jq -er '.result[0]' | tr '[:upper:]' '[:lower:]')"
+
+          cast rpc --rpc-url "$LOCAL_RPC_URL" \
+            anvil_setBalance "$PROTECTED_ADDR" "0x3635c9adc5dea00000" >/dev/null
+
+          mkdir -p out/release/local-evm/solc
+          "$SOLC_BIN" \
+            --bin \
+            --abi \
+            --metadata-hash none \
+            --evm-version cancun \
+            --overwrite \
+            -o out/release/local-evm/solc \
+            contracts/ControlledJobRailV0.sol
+
+          BYTECODE="0x$(cat out/release/local-evm/solc/ControlledJobRailV0.bin)"
+          cast send \
+            --json \
+            --unlocked \
+            --from "$DEPLOYER" \
+            --rpc-url "$LOCAL_RPC_URL" \
+            --create "$BYTECODE" \
+            "constructor(address)" "$PROTECTED_ADDR" \
+            > out/release/local-evm/deploy-receipt.json
+
+          SURROGATE_ADDRESS="$(jq -er '.contractAddress' out/release/local-evm/deploy-receipt.json | tr '[:upper:]' '[:lower:]')"
+          echo "SURROGATE_ADDRESS=$SURROGATE_ADDRESS" >> "$GITHUB_ENV"
+          printf '%s\n' "$SURROGATE_ADDRESS" > out/release/local-evm/surrogate-address.txt
+          cast code "$SURROGATE_ADDRESS" --rpc-url "$LOCAL_RPC_URL" > out/release/local-evm/runtime-code.hex
+
+      - name: Build real local EVM calldata and Transition Envelope
+        env:
+          PROVIDER_ADDRESS: "0x3333333333333333333333333333333333333333"
+          EVALUATOR_ADDRESS: "0x4444444444444444444444444444444444444444"
+          HOOK_ADDRESS: "0x0000000000000000000000000000000000000000"
+          EXPIRED_AT: "2000000000"
+          JOB_DESCRIPTION: "controlled local job v0"
+        run: |
+          set -euo pipefail
+          cast calldata \
+            "createJob(address,address,uint256,string,address)" \
+            "$PROVIDER_ADDRESS" \
+            "$EVALUATOR_ADDRESS" \
+            "$EXPIRED_AT" \
+            "$JOB_DESCRIPTION" \
+            "$HOOK_ADDRESS" \
+            > out/release/local-evm/calldata.hex
+
+          node scripts/build-local-evm-transition-v0.mjs \
+            --request-shadow out/release/request-shadow.json \
+            --execution-account "$PROTECTED_EXECUTION_ACCOUNT" \
+            --target "$SURROGATE_ADDRESS" \
+            --payload-recipient "$PROVIDER_ADDRESS" \
+            --calldata-hex out/release/local-evm/calldata.hex \
+            --output out/release/transition-envelope.json \
+            --proposal-output out/release/local-evm/transaction-proposal.json
 
       - name: Build controlled Release Candidate
         run: |
@@ -529,6 +644,80 @@ jobs:
 
           console.log(JSON.stringify(stage, null, 2));
           NODE
+
+      - name: Execute exact local EVM transaction through E1
+        run: |
+          node scripts/execute-controlled-e1-local-v0.mjs \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --transaction-proposal out/release/local-evm/transaction-proposal.json \
+            --state-db out/release/authority-state.db \
+            --execution-private-key "$PROTECTED_EXECUTION_KEY_FILE" \
+            --rpc-url "$LOCAL_RPC_URL" \
+            --output-dir out/release/e1
+
+      - name: Assert E1 local execution stops at TX_EXECUTED
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
+
+          const e1 = JSON.parse(
+            fs.readFileSync('out/release/e1/e1-execution.json', 'utf8')
+          );
+          const warrant = JSON.parse(
+            fs.readFileSync('out/release/warrant/warrant-body.json', 'utf8')
+          );
+          const protectedAddress = fs
+            .readFileSync('out/release/local-evm/protected-execution-account.txt', 'utf8')
+            .trim();
+
+          if (e1.status !== 'TX_EXECUTED' || e1.s0State !== 'TX_EXECUTED') {
+            throw new Error('E1 did not stop at TX_EXECUTED');
+          }
+          if (e1.protectedExecutionAccount !== protectedAddress) {
+            throw new Error('E1 execution account differs from frozen protected account');
+          }
+          if (
+            e1.signatureReturnedToCaller !== false ||
+            e1.operationalMetadataSuppliedByCaller !== false ||
+            e1.providerDelivered !== false ||
+            e1.payloadReleased !== false ||
+            e1.acpOrQuiverInteraction !== false
+          ) {
+            throw new Error('E1 local execution crossed the frozen slice boundary');
+          }
+
+          const store = await openAuthorityStateStoreV0(
+            'out/release/authority-state.db'
+          );
+          try {
+            const row = store.get({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            if (row?.state !== 'TX_EXECUTED') {
+              throw new Error('S0 restart did not preserve TX_EXECUTED');
+            }
+            if (!row.txEvidenceSha256) {
+              throw new Error('S0 did not bind transaction evidence digest');
+            }
+          } finally {
+            store.close();
+          }
+
+          console.log(JSON.stringify(e1, null, 2));
+          NODE
+
+      - name: Remove protected execution key and stop local Anvil
+        if: always()
+        run: |
+          rm -f "$PROTECTED_EXECUTION_KEY_FILE"
+          if [ -f out/release/local-evm/anvil.pid ]; then
+            kill "$(cat out/release/local-evm/anvil.pid)" 2>/dev/null || true
+          fi
 
       - name: Upload local release contract evidence
         if: always()
