@@ -223,7 +223,49 @@ Attempt to attach an approved payload to a different job id / chain context than
 
 Expected: reject or classify as non-conformant.
 
-## 10. Pass condition
+## 10. Issuance-path attacks
+
+These attacks were added before harness implementation after freezing the issuer/enforcer separation.
+
+### A29 — mint without canonical ALLOW
+
+Attempt to obtain a Warrant v0 without an eligible canonical PayGod ALLOW decision.
+
+Expected: reject.
+
+### A30 — denied decision override
+
+Use a canonical denied/non-releasable decision and request warrant issuance.
+
+Expected: reject.
+
+### A31 — request substitution at issuance
+
+Use a canonical ALLOW for request A but present a Transition Envelope bound to request B.
+
+Expected: reject.
+
+### A32 — transition substitution at issuance
+
+Use a valid ALLOW decision, then alter any committed transition surface before issuance.
+
+Expected: reject unless the canonical decision path is rerun and authorizes the new exact transition under the frozen issuance profile.
+
+### A33 — wrong-domain issuance
+
+Request a warrant for an enforcement domain outside the configured harness domain.
+
+Expected: reject.
+
+### A34 — issuer as arbitrary signing oracle
+
+Attempt to get the issuer to sign caller-chosen bytes or a caller-chosen transition commitment without satisfying the canonical issuance preconditions.
+
+Expected: reject.
+
+Any successful A29-A34 result is an authority bypass even if E1/E2 correctly verify signatures.
+
+## 11. Pass condition
 
 The catalogue passes only if:
 
