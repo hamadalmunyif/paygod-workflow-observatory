@@ -76,7 +76,11 @@ A shared read-only test-fixture directory is permitted if it contains no secret 
 
 ## 4. S0 storage boundary
 
-The S0 SQLite database resides on a persistent volume available only to S0.
+The S0 SQLite database resides on a persistent volume available only to S0/E2 constrained operations.
+
+For local E2 v0, exact staged payload bytes are stored in a separate logical table inside this same SQLite database so that payload persistence and `ISSUED -> PAYLOAD_STAGED` are atomic.
+
+This physical co-location does not give C SQL or filesystem access.
 
 C has no filesystem mount of that volume.
 
