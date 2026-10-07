@@ -22,6 +22,63 @@ const jobExpiredAt = required("JOB_EXPIRED_AT");
 const jobDescription = required("JOB_DESCRIPTION");
 const jobHook = required("JOB_HOOK").toLowerCase();
 
+const forbiddenSecretEnvNames = [
+  "PROTECTED_EXECUTION_KEY_FILE",
+  "WARRANT_ISSUER_PRIVATE_KEY",
+  "DECISION_PRIVATE_KEY",
+  "PRIVATE_KEY",
+  "S0_DB_PATH",
+  "AUTHORITY_STATE_DB",
+];
+
+const exposedSecretEnvNames = forbiddenSecretEnvNames.filter((name) =>
+  Object.prototype.hasOwnProperty.call(process.env, name)
+);
+if (exposedSecretEnvNames.length !== 0) {
+  throw new Error(
+    "T0 key/S0 boundary failed: forbidden environment names exposed to C: " +
+      exposedSecretEnvNames.join(",")
+  );
+}
+
+const workEntries = await fs.readdir("/work", { withFileTypes: true });
+const forbiddenMountedNames = workEntries
+  .map((entry) => entry.name)
+  .filter(
+    (name) =>
+      name === "authority-state.db" ||
+      name.endsWith(".pem") ||
+      /private.*key/i.test(name) ||
+      /protected.*key/i.test(name)
+  );
+if (forbiddenMountedNames.length !== 0) {
+  throw new Error(
+    "T0 key/S0 boundary failed: sensitive file mounted into C: " +
+      forbiddenMountedNames.join(",")
+  );
+}
+
+const directSensitivePaths = [
+  "/work/authority-state.db",
+  "/work/protected-execution-key.txt",
+  "/work/paygod-protected-execution-key.txt",
+  "/tmp/paygod-protected-execution-key.txt",
+];
+
+const reachableSensitivePaths = [];
+for (const candidate of directSensitivePaths) {
+  try {
+    await fs.access(candidate);
+    reachableSensitivePaths.push(candidate);
+  } catch {}
+}
+if (reachableSensitivePaths.length !== 0) {
+  throw new Error(
+    "T0 key/S0 boundary failed: sensitive path reachable from C: " +
+      reachableSensitivePaths.join(",")
+  );
+}
+
 // Anvil default account #0. Its secrecy is explicitly not a harness property.
 const alternatePrivateKey =
   process.env.ALTERNATE_PRIVATE_KEY ??
@@ -262,6 +319,21 @@ const summary = {
   next_job_id_before: before,
   next_job_id_after: after,
   raw_transaction_submission_available: true,
+  key_reachability: {
+    protected_private_key_observed: false,
+    protected_private_key_file_mounted: false,
+    generic_protected_signing_available: false,
+    forbidden_secret_env_names_present: exposedSecretEnvNames,
+    sensitive_paths_reachable: reachableSensitivePaths,
+  },
+  s0_reachability: {
+    authority_state_db_mounted: false,
+    client_s0_admin_api_exposed: false,
+    client_s0_reset_path_observed: false,
+    forbidden_s0_env_names_present: exposedSecretEnvNames.filter((name) =>
+      name === "S0_DB_PATH" || name === "AUTHORITY_STATE_DB"
+    ),
+  },
   forbidden_methods: forbiddenResults,
 };
 
