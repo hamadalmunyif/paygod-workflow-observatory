@@ -26,7 +26,28 @@ Reference chain id:
 
 `31337`
 
-The implementation PR must pin the exact local-devchain tool/image/version it uses.
+The exact local rail is frozen in:
+
+`LOCAL_EVM_RAIL_V0.md`
+
+Reference runtime:
+
+- Foundry/Anvil `v1.8.5`
+- tag commit `51a52c59cffd940f76eddd0b4bb1791aa4b5ac7f`
+- reference CI asset `foundry_v1.8.5_linux_amd64.tar.gz`
+- required asset SHA-256 `6c66ffcc55fa4249197721baa3098bc208014ea1d8aa04b2ed50ac6bccffb226`
+
+The implementation workflow must verify this digest before extraction.
+
+The adversarial client must not receive Anvil raw/admin RPC. Its chain access is the fail-closed R-client proxy defined by `LOCAL_EVM_RAIL_V0.md` and `LOCAL_EVM_RPC_BOUNDARY_V0.md`.
+
+The exact surrogate contract/compiler profile is frozen in `LOCAL_EVM_SURROGATE_CONTRACT_V0.md`:
+
+- Solidity `0.8.30+commit.73712a01`;
+- solc linux-amd64 SHA-256 `f3e987dc6ecebd4bd350c48edcbc320b46cf9e3109bd3fc3d88f1acaf4c428f7`;
+- no requirement-payload digest in transaction calldata;
+- immutable protected execution account;
+- no admin/upgrade/bypass path.
 
 ## 2. Local transaction model
 
@@ -284,7 +305,22 @@ The implementation should prefer standard-library cryptography for issuer signin
 
 Any new dependency must be justified by the execution surface it implements and pinned through the repository lockfile.
 
-## 15. Still unresolved by this profile
+## 15. Local rail boundary required for Slice 2
+
+Before E1/E2 execution tests begin, the witness must record:
+
+- Anvil binary/release identity;
+- archive digest verification result;
+- chain id 31337;
+- protected execution account;
+- surrogate contract address/code hash;
+- R-client allowlist;
+- proof that C cannot route to R-admin;
+- frozen attack-catalogue version including A51-A54.
+
+A failure of R-client filtering or R-admin isolation is a harness boundary failure, not an E1 pass.
+
+## 16. Still unresolved by this profile
 
 This profile does not solve:
 
