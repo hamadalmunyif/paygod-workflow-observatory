@@ -309,6 +309,11 @@ try {
       txEvidenceBytes
     ),
     fs.writeFile(
+      path.join(outputDir, "transaction-receipt.json"),
+      JSON.stringify(receipt, null, 2) + "\n",
+      "utf8"
+    ),
+    fs.writeFile(
       path.join(outputDir, "e1-execution.json"),
       JSON.stringify(summary, null, 2) + "\n",
       "utf8"
