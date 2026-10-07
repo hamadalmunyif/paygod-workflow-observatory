@@ -389,6 +389,16 @@ Expected: contract rejects or resulting state is observably a different transiti
 
 If the protected client identity/state can be produced without E1, Gate Zero fails.
 
+### A55 — client transaction-metadata injection
+
+Attempt to supply or override E1 operational transaction fields that are intentionally outside Transition Envelope v0, including nonce, gas limit, gas price, or EIP-1559 fee fields.
+
+Expected: the protected E1 API rejects or ignores caller-supplied values and derives its own local execution mechanics.
+
+If C can alter those fields through the protected E1 request surface, record `HARNESS_DEFECT` for v0 because the actual E1 API exceeded the frozen authority contract.
+
+This attack does not claim economic fee protection; the local chain remains valueless.
+
 ## 13. Pass condition
 
 The catalogue passes only if:
