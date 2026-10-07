@@ -812,6 +812,28 @@ jobs:
             --state-db out/release/authority-state.db \
             --output-dir out/release/gate-zero-t0
 
+      - name: Reject E2 release before E1 success
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/postflight-attacks
+          node scripts/attempt-e2-release-state-v0.mjs \
+            --phase pre-e1 \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --state-db out/release/authority-state.db \
+            --output out/release/postflight-attacks/a20-a41-pre-e1.json
+
+          jq -e '
+            .classification == "REJECTED_AS_EXPECTED" and
+            .state_before == "PAYLOAD_STAGED" and
+            .state_after == "PAYLOAD_STAGED" and
+            .provider_delivery_attempted == false and
+            (.attacks | sort) == (["A20","A41"] | sort)
+          ' out/release/postflight-attacks/a20-a41-pre-e1.json >/dev/null
+
+          test ! -e out/release/provider/provider-observation.json
+          test ! -e out/release/provider/provider-received-payload.bin
+
       - name: Execute exact local EVM transaction through E1
         run: |
           node scripts/execute-controlled-e1-local-v0.mjs \
@@ -913,10 +935,224 @@ jobs:
             --client-image out/release/local-evm/client-container-image.txt \
             --output out/release/gate-zero-t0/result.json
 
+      - name: Reject invalid E2 release after valid E1 execution
+        run: |
+          set -euo pipefail
+          node scripts/attempt-e2-release-state-v0.mjs \
+            --phase post-e1 \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --state-db out/release/authority-state.db \
+            --output out/release/postflight-attacks/a19-post-e1.json
+
+          jq -e '
+            .classification == "REJECTED_AS_EXPECTED" and
+            .state_before == "TX_EXECUTED" and
+            .state_after == "TX_EXECUTED" and
+            .provider_delivery_attempted == false and
+            (.attacks == ["A19"])
+          ' out/release/postflight-attacks/a19-post-e1.json >/dev/null
+
+          test ! -e out/release/provider/provider-observation.json
+          test ! -e out/release/provider/provider-received-payload.bin
+
+      - name: Release exact staged payload through E2
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/e2-release
+          node scripts/release-controlled-payload-v0.mjs \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --tx-evidence out/release/e1/tx-evidence.json \
+            --state-db out/release/authority-state.db \
+            --rpc-url "$LOCAL_RPC_URL" \
+            --provider-url "$PROVIDER_URL" \
+            --output-dir out/release/e2-release
+
+          jq -e '
+            .status == "PAYLOAD_RELEASED" and
+            .warrant_verification == "VALID" and
+            .trusted_issuer == true and
+            .instance_binding_classification == "INSTANCE_DERIVED_FROM_MATCHING_EXECUTION" and
+            .exact_staged_bytes_released == true and
+            .provider_delivery == "OBSERVED" and
+            .provider_observation_grade == "RUNTIME_OBSERVED"
+          ' out/release/e2-release/e2-release.json >/dev/null
+
+          jq -e '
+            .status == "OBSERVED" and
+            .observation_grade == "RUNTIME_OBSERVED" and
+            .content_type == "requirement"
+          ' out/release/provider/provider-observation.json >/dev/null
+
+          cmp -s \
+            out/release/e2/staged-payload.bin \
+            out/release/e2-release/released-payload.bin
+          cmp -s \
+            out/release/e2/staged-payload.bin \
+            out/release/provider/provider-received-payload.bin
+
+      - name: Run frozen post-flight adversarial checks
+        run: |
+          set -euo pipefail
+          node scripts/run-postflight-attacks-v0.mjs \
+            --transition-envelope out/release/transition-envelope.json \
+            --tx-evidence out/release/e1/tx-evidence.json \
+            --transaction-receipt out/release/e2-release/transaction-receipt.json \
+            --staged-payload out/release/e2/staged-payload.bin \
+            --provider-payload out/release/provider/provider-received-payload.bin \
+            --output out/release/postflight-attacks/runtime-artifact-attacks.json
+
+          jq -e '
+            .attempts.A26.classification == "REJECTED_AS_EXPECTED" and
+            .attempts.A27.classification == "REJECTED_AS_EXPECTED" and
+            .attempts.A28.classification == "REJECTED_AS_EXPECTED" and
+            .attempts.A37.classification == "REJECTED_AS_EXPECTED"
+          ' out/release/postflight-attacks/runtime-artifact-attacks.json >/dev/null
+
+      - name: Prove post-flight verifier rejects mutated provider bytes
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/postflight-adversarial
+          cp \
+            out/release/provider/provider-received-payload.bin \
+            out/release/postflight-adversarial/provider-mutated.bin
+          printf '\000' >> out/release/postflight-adversarial/provider-mutated.bin
+
+          if node scripts/verify-controlled-postflight-v0.mjs \
+            --request-shadow out/release/request-shadow.json \
+            --release-candidate out/release/release-candidate.json \
+            --release-profile contracts/controlled-release-profile-v0.json \
+            --paygod-validate out/release/paygod-validate.json \
+            --paygod-bundle out/release/paygod \
+            --decision-trust-store out/release/decision-trust-store.json \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --e2-stage out/release/e2/e2-stage.json \
+            --e1-verification out/release/e1/e1-verification.json \
+            --tx-evidence out/release/e1/tx-evidence.json \
+            --transaction-receipt out/release/e2-release/transaction-receipt.json \
+            --instance-binding out/release/e2-release/instance-binding.json \
+            --e2-release out/release/e2-release/e2-release.json \
+            --provider-observation out/release/provider/provider-observation.json \
+            --released-payload out/release/e2-release/released-payload.bin \
+            --provider-payload out/release/postflight-adversarial/provider-mutated.bin \
+            --gate-zero-result out/release/gate-zero-t0/result.json \
+            --state-db out/release/authority-state.db \
+            --output-dir out/release/postflight-adversarial/verifier \
+            > out/release/postflight-adversarial/a26-verifier.log 2>&1; then
+            echo "A26 failed: mutated provider payload was accepted"
+            exit 1
+          fi
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { openAuthorityStateStoreV0 } from './src/authority-state-v0.mjs';
+          const warrant = JSON.parse(
+            fs.readFileSync('out/release/warrant/warrant-body.json','utf8')
+          );
+          const store = await openAuthorityStateStoreV0('out/release/authority-state.db');
+          try {
+            const row = store.get({
+              issuerKeyId: warrant.issuer_key_id,
+              nonce: warrant.nonce,
+            });
+            if (row?.state !== 'PAYLOAD_RELEASED') {
+              throw new Error('failed A26 verification mutated S0 state');
+            }
+          } finally {
+            store.close();
+          }
+          NODE
+
+      - name: Independently verify two-surface post-flight conformance
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/postflight
+          node scripts/verify-controlled-postflight-v0.mjs \
+            --request-shadow out/release/request-shadow.json \
+            --release-candidate out/release/release-candidate.json \
+            --release-profile contracts/controlled-release-profile-v0.json \
+            --paygod-validate out/release/paygod-validate.json \
+            --paygod-bundle out/release/paygod \
+            --decision-trust-store out/release/decision-trust-store.json \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --e2-stage out/release/e2/e2-stage.json \
+            --e1-verification out/release/e1/e1-verification.json \
+            --tx-evidence out/release/e1/tx-evidence.json \
+            --transaction-receipt out/release/e2-release/transaction-receipt.json \
+            --instance-binding out/release/e2-release/instance-binding.json \
+            --e2-release out/release/e2-release/e2-release.json \
+            --provider-observation out/release/provider/provider-observation.json \
+            --released-payload out/release/e2-release/released-payload.bin \
+            --provider-payload out/release/provider/provider-received-payload.bin \
+            --gate-zero-result out/release/gate-zero-t0/result.json \
+            --state-db out/release/authority-state.db \
+            --output-dir out/release/postflight
+
+          jq -e '
+            .outcome == "AUTHORIZED_CONFORMANT" and
+            .verification_boundary == "closed-harness independent-process verification" and
+            .final_s0_state == "CONFORMANT" and
+            .provider_observation == "RUNTIME_OBSERVED" and
+            .paygod_decision_independently_reverified == true and
+            .warrant_verified_at_release_event_time == true and
+            .trusted_external_time_proven == false and
+            .decision_replay_performed == false and
+            .external_provider_independence_proven == false and
+            .economic_fee_authority_proven == false and
+            .warrant_originality_proven == false
+          ' out/release/postflight/conformance.json >/dev/null
+
+          jq -e '
+            .authority_state_sequence ==
+              ["ISSUED","PAYLOAD_STAGED","TX_RESERVED","TX_EXECUTED","PAYLOAD_RELEASED","CONFORMANT"]
+          ' out/release/postflight/conformance.json >/dev/null
+
+      - name: Build post-flight evidence bundle
+        run: |
+          set -euo pipefail
+          node scripts/build-postflight-evidence-bundle-v0.mjs \
+            --output-dir out/release/postflight-bundle \
+            --request-identity out/release/request-identity.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --issuance-audit out/release/warrant/warrant-issuance-audit.json \
+            --authority-state-events out/release/postflight/authority-state-events.jsonl \
+            --e2-stage out/release/e2/e2-stage.json \
+            --e1-verification out/release/e1/e1-verification.json \
+            --transaction-proposal out/release/local-evm/transaction-proposal.json \
+            --transaction-evidence out/release/e1/tx-evidence.json \
+            --transaction-receipt out/release/e2-release/transaction-receipt.json \
+            --instance-binding out/release/e2-release/instance-binding.json \
+            --e2-release out/release/e2-release/e2-release.json \
+            --released-payload out/release/e2-release/released-payload.bin \
+            --provider-observation out/release/provider/provider-observation.json \
+            --provider-payload out/release/provider/provider-received-payload.bin \
+            --gate-zero-result out/release/gate-zero-t0/result.json \
+            --conformance out/release/postflight/conformance.json
+
+          jq -e '
+            .schema == "workflow-observatory/postflight-evidence-manifest/v0" and
+            .profile == "closed-harness/t0-v0" and
+            .file_count == 18
+          ' out/release/postflight-bundle/manifest.json >/dev/null
+
       - name: Remove protected execution key and stop local rail
         if: always()
         run: |
           rm -f "$PROTECTED_EXECUTION_KEY_FILE"
+          if [ -f out/release/provider/provider.pid ]; then
+            kill "$(cat out/release/provider/provider.pid)" 2>/dev/null || true
+          fi
           if [ -f out/release/local-evm/r-client-proxy.pid ]; then
             kill "$(cat out/release/local-evm/r-client-proxy.pid)" 2>/dev/null || true
           fi
