@@ -276,7 +276,9 @@ If P treats such a payload as the protected requirement, record `BYPASS_OBSERVED
 
 ## 14. Implementation language boundary
 
-The harness may be implemented in Node.js compatible with the repository's existing Node >=20.19 requirement.
+The repository continues to support Node >=20.19 for general observatory functions.
+
+The **reference authority harness runtime is Node 22** because S0 uses `node:sqlite`. Node 20 CI may validate non-S0 code paths, but it is not a reference runtime for the authority harness.
 
 The implementation should prefer standard-library cryptography for issuer signing/verification where practical.
 
