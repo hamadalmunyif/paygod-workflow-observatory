@@ -245,3 +245,19 @@ Both `stagePayload` and `reserveTransaction` require the exact `warrant_body_sha
 This makes a signed-but-unregistered or differently registered Warrant fail at the state boundary even if a caller forgets to perform a separate comparison.
 
 This is defense in depth; E1/E2 still verify the signature and transition surface independently.
+
+
+## 17. Local E2 exact-byte staging
+
+The local E2 v0 implementation stores exact staged payload bytes in a separate logical table inside the S0 SQLite database.
+
+The E2 stage operation must atomically:
+
+1. verify the current record is `ISSUED` and matches issuer/nonce/transition/domain/warrant-body digest;
+2. insert the immutable exact payload bytes plus channel/recipient/content-type metadata;
+3. set the authority-state payload digest;
+4. transition `ISSUED -> PAYLOAD_STAGED`.
+
+If any operation fails, the entire SQLite transaction rolls back and the authority record remains `ISSUED`.
+
+No update/replace API for staged payload bytes is permitted in v0.
