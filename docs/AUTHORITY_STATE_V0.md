@@ -42,8 +42,11 @@ and permanently binds:
 
 - `transition_commitment`
 - `enforcement_domain`
+- `not_before`
+- `expires_at`
+- `warrant_body_sha256`
 
-A nonce may never be rebound to a different transition commitment.
+A nonce may never be rebound to a different transition commitment, domain, validity window, or warrant body.
 
 ## 4. State machine
 
