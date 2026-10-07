@@ -6,6 +6,7 @@ import {
   CONTROLLED_ENFORCEMENT_DOMAIN,
   exportIssuerPublicKeySpkiDer,
   issuerKeyIdFromPublicKey,
+  issuerKeyIdFromSpkiDer,
 } from "./warrant-v0.mjs";
 
 export const WARRANT_ISSUER_TRUST_SCHEMA =
@@ -71,6 +72,73 @@ export function buildWarrantIssuerTrustStoreV0({
     sha256: sha256Bytes(bytes),
     issuerKeyId,
     publicKeySpkiDer: spkiDer,
+  };
+}
+
+
+export function trustedWarrantIssuersFromExternalTrustV0({
+  trustStore,
+  trustStoreBytes = null,
+  expectedDomain = CONTROLLED_ENFORCEMENT_DOMAIN,
+}) {
+  const trust = requireObject(
+    trustStore,
+    "WARRANT_TRUST_STORE_REQUIRED",
+    "warrant issuer trust store"
+  );
+  if (trust.schema !== WARRANT_ISSUER_TRUST_SCHEMA) {
+    authorityFail(
+      "WARRANT_TRUST_SCHEMA_MISMATCH",
+      "Warrant issuer trust schema mismatch"
+    );
+  }
+  if (trust.enforcement_domain !== expectedDomain) {
+    authorityFail(
+      "WARRANT_TRUST_DOMAIN_MISMATCH",
+      "Warrant issuer trust domain mismatch"
+    );
+  }
+  if (!Array.isArray(trust.keys) || trust.keys.length !== 1) {
+    authorityFail(
+      "WARRANT_TRUST_KEY_COUNT_INVALID",
+      "Warrant issuer trust v0 requires exactly one key"
+    );
+  }
+
+  const entry = requireObject(
+    trust.keys[0],
+    "WARRANT_TRUST_KEY_ENTRY_INVALID",
+    "Warrant issuer trust key entry"
+  );
+  if (entry.algorithm !== "Ed25519") {
+    authorityFail(
+      "WARRANT_TRUST_ALGORITHM_MISMATCH",
+      "trusted Warrant issuer algorithm must be Ed25519"
+    );
+  }
+  const spkiDer = exactBase64Bytes(
+    entry.public_key_spki_der_base64,
+    "WARRANT_TRUST_PUBLIC_KEY_INVALID",
+    "public_key_spki_der_base64"
+  );
+  const derivedId = issuerKeyIdFromSpkiDer(spkiDer);
+  if (entry.issuer_key_id !== derivedId) {
+    authorityFail(
+      "WARRANT_TRUST_KEY_ID_MISMATCH",
+      "trusted Warrant issuer key id does not match exact SPKI bytes"
+    );
+  }
+
+  const exactTrustBytes =
+    trustStoreBytes === null
+      ? Buffer.from(JSON.stringify(trust) + "\n", "utf8")
+      : Buffer.from(trustStoreBytes);
+
+  return {
+    enforcementDomain: trust.enforcement_domain,
+    issuerKeyIds: [derivedId],
+    trustedIssuers: new Map([[derivedId, spkiDer]]),
+    trustStoreSha256: sha256Bytes(exactTrustBytes),
   };
 }
 
