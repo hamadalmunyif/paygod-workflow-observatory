@@ -6,7 +6,7 @@
     "path": "packs/acp-request-admission-shadow",
     "name": "acp-request-admission-shadow",
     "version": "0.2.0",
-    "digestSha256": null,
+    "digestSha256": "30ee55d7f5343ae265f1fcf9cfe145376bbe89a629dbaa170205bc7c0074fc7c",
     "allowedVerdict": "allow",
     "allowedRule": "shadow-admitted"
   },
@@ -14,7 +14,7 @@
     "path": "packs/controlled-authority-release-v0",
     "name": "controlled-authority-release-v0",
     "version": "0.2.0",
-    "digestSha256": null,
+    "digestSha256": "2707edc293aabb17784aaa5b0a120c5290d10bdac5dc429555fcf586a7e983c8",
     "allowedVerdict": "allow",
     "allowedRule": "controlled-local-release"
   },
