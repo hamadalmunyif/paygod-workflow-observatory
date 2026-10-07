@@ -29,7 +29,13 @@ const forbiddenSecretEnvNames = [
   "PRIVATE_KEY",
   "S0_DB_PATH",
   "AUTHORITY_STATE_DB",
+  "WARRANT_TRUST_STORE",
+  "WARRANT_ISSUER_TRUST_STORE",
+  "E1_CONFIG_PATH",
+  "E2_CONFIG_PATH",
 ];
+
+const environmentVariableNames = Object.keys(process.env).sort();
 
 const exposedSecretEnvNames = forbiddenSecretEnvNames.filter((name) =>
   Object.prototype.hasOwnProperty.call(process.env, name)
@@ -63,6 +69,9 @@ const directSensitivePaths = [
   "/work/protected-execution-key.txt",
   "/work/paygod-protected-execution-key.txt",
   "/tmp/paygod-protected-execution-key.txt",
+  "/work/warrant-issuer-trust.json",
+  "/work/decision-trust-store.json",
+  "/var/run/docker.sock",
 ];
 
 const reachableSensitivePaths = [];
@@ -74,9 +83,40 @@ for (const candidate of directSensitivePaths) {
 }
 if (reachableSensitivePaths.length !== 0) {
   throw new Error(
-    "T0 key/S0 boundary failed: sensitive path reachable from C: " +
+    "T0 key/S0/config boundary failed: sensitive path reachable from C: " +
       reachableSensitivePaths.join(",")
   );
+}
+
+const mountInfoText = await fs.readFile("/proc/self/mountinfo", "utf8");
+const mountPoints = mountInfoText
+  .split("\n")
+  .filter(Boolean)
+  .map((line) => line.split(" ")[4])
+  .filter(Boolean)
+  .sort();
+
+const sensitiveMountPoints = mountPoints.filter((mountPoint) =>
+  /authority-state|private.*key|protected.*key|warrant-issuer-trust|decision-trust|docker\.sock/i.test(
+    mountPoint
+  )
+);
+if (sensitiveMountPoints.length !== 0) {
+  throw new Error(
+    "T0 key/S0/config boundary failed: sensitive mount observed in C: " +
+      sensitiveMountPoints.join(",")
+  );
+}
+
+let clientScriptWritable = false;
+let scriptHandle = null;
+try {
+  scriptHandle = await fs.open("/work/gate-zero-e1-client-v0.mjs", "a");
+  clientScriptWritable = true;
+} catch {}
+if (scriptHandle) await scriptHandle.close();
+if (clientScriptWritable) {
+  throw new Error("T0 enforcer boundary failed: client script mount is writable");
 }
 
 // Anvil default account #0. Its secrecy is explicitly not a harness property.
@@ -170,6 +210,11 @@ const forbiddenMethods = [
   ["eth_sign", [protectedAccount, "0x00"]],
   ["eth_signTransaction", [{ from: protectedAccount, to: target, data: calldataHex, value: "0x0" }]],
   ["personal_sign", ["0x00", protectedAccount]],
+  ["s0_reset", []],
+  ["paygod_s0Reset", []],
+  ["sqlite_exec", ["DELETE FROM authority_state"]],
+  ["paygod_setTrustedWarrantIssuer", ["attacker"]],
+  ["paygod_replaceEnforcer", ["attacker"]],
 ];
 
 const forbiddenResults = [];
@@ -319,12 +364,18 @@ const summary = {
   next_job_id_before: before,
   next_job_id_after: after,
   raw_transaction_submission_available: true,
+  c_boundary_inventory: {
+    environment_variable_names: environmentVariableNames,
+    mount_points: mountPoints,
+    work_entries: workEntries.map((entry) => entry.name).sort(),
+  },
   key_reachability: {
     protected_private_key_observed: false,
     protected_private_key_file_mounted: false,
     generic_protected_signing_available: false,
     forbidden_secret_env_names_present: exposedSecretEnvNames,
     sensitive_paths_reachable: reachableSensitivePaths,
+    sensitive_mount_points: sensitiveMountPoints,
   },
   s0_reachability: {
     authority_state_db_mounted: false,
@@ -333,6 +384,14 @@ const summary = {
     forbidden_s0_env_names_present: exposedSecretEnvNames.filter((name) =>
       name === "S0_DB_PATH" || name === "AUTHORITY_STATE_DB"
     ),
+    reset_rpc_attempts_rejected: true,
+  },
+  config_reachability: {
+    warrant_trust_store_mounted: false,
+    caller_trust_configuration_input_exposed: false,
+    docker_socket_mounted: false,
+    client_script_read_only: true,
+    enforcer_reconfiguration_rpc_attempts_rejected: true,
   },
   forbidden_methods: forbiddenResults,
 };
