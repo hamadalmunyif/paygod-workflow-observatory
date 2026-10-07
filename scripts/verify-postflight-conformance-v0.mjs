@@ -159,6 +159,7 @@ const paths = {
   providerObservation: requiredArg("--provider-observation"),
   providerPayload: requiredArg("--provider-payload"),
   gateZeroResult: requiredArg("--gate-zero-result"),
+  e2ReleaseAttacks: requiredArg("--e2-release-attacks"),
 };
 const rpcUrl = requiredArg("--rpc-url");
 const paygodVerifier =
@@ -219,6 +220,7 @@ const [
   providerObservation,
   providerPayload,
   gateZeroResult,
+  e2ReleaseAttacks,
 ] = await Promise.all([
   readJson(verifierResultPath),
   readJson(path.join(paths.paygodBundle, "receipt.json")),
@@ -243,6 +245,7 @@ const [
   readJson(paths.providerObservation),
   fs.readFile(paths.providerPayload),
   readJson(paths.gateZeroResult),
+  readJson(paths.e2ReleaseAttacks),
 ]);
 
 let txEvidence;
@@ -521,14 +524,29 @@ try {
     );
   }
 
+  const requiredReleaseAttacks = ["A19", "A26", "A27", "A28", "A37"];
+  check(
+    "Frozen E2 release attacks",
+    e2ReleaseAttacks?.schema ===
+        "workflow-observatory/e2-release-attacks/v0" &&
+      e2ReleaseAttacks?.state_after === "TX_EXECUTED" &&
+      e2ReleaseAttacks?.provider_delivery_observed === false &&
+      requiredReleaseAttacks.every(
+        (attack) =>
+          e2ReleaseAttacks?.attempts?.[attack]?.classification ===
+          "REJECTED_AS_EXPECTED"
+      ),
+    "A19/A26/A27/A28/A37 were actively rejected before legitimate provider release"
+  );
+
   const attackClassifications = [
     { attack: "A18", status: "RUNTIME_REJECTED", evidence: "C provider ingress unreachable" },
-    { attack: "A19", status: "VERIFIER_GUARD_PRESENT_NOT_SEPARATELY_INJECTED", evidence: "provider/release mismatch prevents conformance" },
+    { attack: "A19", status: "RUNTIME_REJECTED", evidence: "mutated E2 transaction evidence rejected before provider delivery" },
     { attack: "A20/A41", status: "RUNTIME_REJECTED", evidence: "pre-TX_EXECUTED release rejected" },
-    { attack: "A26", status: "RUNTIME_REJECTED_SUPPORTING_T0", evidence: "exact staged-payload substitution/replacement attempts" },
-    { attack: "A27", status: "VERIFIER_GUARD_PRESENT", evidence: "live tx must match transition and S0 tx evidence" },
-    { attack: "A28", status: "NO_CALLER_JOB_ID_CARRIER", evidence: "job id derived only from receipt event" },
-    { attack: "A37", status: "VERIFIER_GUARD_PRESENT", evidence: "event/provider observation must equal committed recipient" },
+    { attack: "A26", status: "RUNTIME_REJECTED", evidence: "caller release-payload override rejected before provider delivery" },
+    { attack: "A27", status: "RUNTIME_REJECTED", evidence: "changed transaction evidence rejected before release" },
+    { attack: "A28", status: "RUNTIME_REJECTED", evidence: "caller job-id carrier rejected; job id remains receipt-derived" },
+    { attack: "A37", status: "RUNTIME_REJECTED", evidence: "caller provider-recipient override rejected; committed recipient preserved" },
   ];
 
   let status;
@@ -655,6 +673,7 @@ try {
     [paths.providerObservation, "provider-observation.json"],
     [paths.providerPayload, "provider-received-payload.bin"],
     [paths.gateZeroResult, "gate-zero-result.json"],
+    [paths.e2ReleaseAttacks, "e2-release-attacks.json"],
     [authorityEventsPath, "authority-state-events.jsonl"],
     [conformancePath, "conformance.json"],
   ];
