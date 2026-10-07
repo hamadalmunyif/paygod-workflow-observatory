@@ -265,6 +265,7 @@ try {
     instance_id: binding.instance_id,
     s0_state_before: "TX_EXECUTED",
     s0_state_after: released.state,
+    released_at_ms: released.updatedAt,
     exact_staged_bytes_released: true,
     provider_delivery: "PENDING",
   };
@@ -300,6 +301,7 @@ try {
       "x-paygod-transaction-hash": binding.transaction_hash,
       "x-paygod-provider-recipient": staged.payloadRecipient,
       "x-paygod-payload-sha256": staged.payloadSha256,
+      "x-paygod-payload-content-type": staged.payloadContentType,
     },
     body: staged.payloadBytes,
   });
