@@ -140,7 +140,7 @@ function baseline() {
 
 function admit(overrides = {}) {
   const x = baseline();
-  return verifyControlledDecisionAdmissionV0({
+  return verifyTrustedControlledDecisionAdmissionV0({
     candidateBytes: overrides.candidateBytes ?? x.candidate.bytes,
     requestShadow: overrides.requestShadow ?? x.shadow,
     transitionEnvelopeBytes: overrides.transitionEnvelopeBytes ?? x.tx.bytes,
