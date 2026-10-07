@@ -40,10 +40,14 @@ async function probePath(targetPath) {
 
 const protectedKeyHostPath = required("PROTECTED_KEY_HOST_PATH");
 const s0HostPath = required("S0_HOST_PATH");
+const decisionTrustHostPath = required("DECISION_TRUST_HOST_PATH");
+const warrantTrustHostPath = required("WARRANT_TRUST_HOST_PATH");
 const outputPath = required("BOUNDARY_PROBE_OUTPUT");
 
 const protectedKey = await probePath(protectedKeyHostPath);
 const s0 = await probePath(s0HostPath);
+const decisionTrust = await probePath(decisionTrustHostPath);
+const warrantTrust = await probePath(warrantTrustHostPath);
 const dockerSocket = await probePath("/var/run/docker.sock");
 
 const suspiciousSecretEnv = Object.keys(process.env)
@@ -71,6 +75,16 @@ if (s0.readable || s0.writable) {
     "T0-S0-REACH bypass: C can access the authority-state database host path"
   );
 }
+if (decisionTrust.readable || decisionTrust.writable) {
+  throw new Error(
+    "T0 trust-boundary bypass: C can access the decision trust-store host path"
+  );
+}
+if (warrantTrust.readable || warrantTrust.writable) {
+  throw new Error(
+    "T0 trust-boundary bypass: C can access the Warrant trust-store host path"
+  );
+}
 if (dockerSocket.readable || dockerSocket.writable) {
   throw new Error(
     "T0 boundary defect: C can access the Docker control socket"
@@ -91,6 +105,10 @@ const result = {
   protected_key_host_path_writable: false,
   s0_host_path_readable: false,
   s0_host_path_writable: false,
+  decision_trust_store_readable: false,
+  decision_trust_store_writable: false,
+  warrant_trust_store_readable: false,
+  warrant_trust_store_writable: false,
   docker_socket_readable: false,
   docker_socket_writable: false,
   suspicious_secret_env_names: [],
@@ -98,16 +116,26 @@ const result = {
     protectedKeyHostPath
   ),
   mountinfo_contains_s0_host_path: mountInfo.includes(s0HostPath),
+  mountinfo_contains_decision_trust_host_path: mountInfo.includes(
+    decisionTrustHostPath
+  ),
+  mountinfo_contains_warrant_trust_host_path: mountInfo.includes(
+    warrantTrustHostPath
+  ),
   probes: {
     protected_key: protectedKey,
     authority_state: s0,
+    decision_trust_store: decisionTrust,
+    warrant_trust_store: warrantTrust,
     docker_socket: dockerSocket,
   },
 };
 
 if (
   result.mountinfo_contains_protected_key_host_path ||
-  result.mountinfo_contains_s0_host_path
+  result.mountinfo_contains_s0_host_path ||
+  result.mountinfo_contains_decision_trust_host_path ||
+  result.mountinfo_contains_warrant_trust_host_path
 ) {
   throw new Error("T0 boundary defect: host secret/state path appears in mountinfo");
 }
