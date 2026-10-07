@@ -5,11 +5,13 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 
 import { sha256Bytes } from "../src/digest.mjs";
+import { verifyControlledDecisionAdmissionV0 } from "../src/controlled-decision-admission-v0.mjs";
 import { openAuthorityStateStoreV0 } from "../src/authority-state-v0.mjs";
 import { deriveMatchingJobInstanceV0 } from "../src/postflight-binding-v0.mjs";
 import { parseExactTransitionEnvelopeV0 } from "../src/transition-envelope-v0.mjs";
 import {
   CONTROLLED_ENFORCEMENT_DOMAIN,
+  parseExactWarrantBodyV0,
   verifyWarrantV0,
 } from "../src/warrant-v0.mjs";
 import { trustedWarrantIssuersFromExternalTrustV0 } from "../src/warrant-issuer-trust-v0.mjs";
@@ -49,7 +51,12 @@ function runCast(args) {
   return result.stdout.trim().toLowerCase();
 }
 
-const decisionSummaryPath = requiredArg("--decision-summary");
+const requestShadowPath = requiredArg("--request-shadow");
+const candidatePath = requiredArg("--release-candidate");
+const profilePath = requiredArg("--release-profile");
+const validatePath = requiredArg("--paygod-validate");
+const paygodBundleDir = requiredArg("--paygod-bundle");
+const decisionTrustStorePath = requiredArg("--decision-trust-store");
 const warrantBodyPath = requiredArg("--warrant-body");
 const warrantSignaturePath = requiredArg("--warrant-signature");
 const trustPath = requiredArg("--warrant-trust-store");
@@ -67,11 +74,48 @@ const gateZeroResultPath = requiredArg("--gate-zero-result");
 const stateDbPath = requiredArg("--state-db");
 const outputDir = requiredArg("--output-dir");
 const castBin = argValue("--cast-bin") ?? "cast";
+const pythonExecutable = argValue("--python") ?? "python3";
+const paygodVerifier = "external/paygod-kernel/tools/verify_portable_evidence.py";
 
 await fs.mkdir(outputDir, { recursive: true });
 
+const paygodVerificationPath = path.join(
+  outputDir,
+  "paygod-verification.json"
+);
+const verifierRun = spawnSync(
+  pythonExecutable,
+  [
+    paygodVerifier,
+    paygodBundleDir,
+    "--trusted-issuer-keys",
+    decisionTrustStorePath,
+    "--require-issuer-authenticity",
+    "--result",
+    paygodVerificationPath,
+  ],
+  { stdio: "inherit", env: process.env }
+);
+if (verifierRun.error) {
+  throw new Error(
+    "PayGod verifier could not be started: " + verifierRun.error.message
+  );
+}
+if (verifierRun.status !== 0) {
+  throw new Error(
+    "PayGod verifier rejected the decision bundle (exit " +
+      verifierRun.status +
+      ")"
+  );
+}
+
 const [
-  decisionSummary,
+  requestShadow,
+  candidateBytes,
+  releaseProfile,
+  paygodValidate,
+  receiptBytes,
+  paygodVerification,
   warrantBodyBytes,
   warrantSignatureBytes,
   trustBytes,
@@ -87,7 +131,12 @@ const [
   providerPayload,
   gateZero,
 ] = await Promise.all([
-  readJson(decisionSummaryPath),
+  readJson(requestShadowPath),
+  fs.readFile(candidatePath),
+  readJson(profilePath),
+  readJson(validatePath),
+  fs.readFile(path.join(paygodBundleDir, "receipt.json")),
+  readJson(paygodVerificationPath),
   fs.readFile(warrantBodyPath),
   fs.readFile(warrantSignaturePath),
   fs.readFile(trustPath),
@@ -111,22 +160,50 @@ const trust = trustedWarrantIssuersFromExternalTrustV0({
   trustStoreBytes: trustBytes,
 });
 
+const decision = verifyControlledDecisionAdmissionV0({
+  candidateBytes,
+  requestShadow,
+  transitionEnvelopeBytes: envelopeBytes,
+  releaseProfile,
+  paygodValidate,
+  receiptBytes,
+  paygodVerification,
+});
+equal(
+  decision.status,
+  "AUTHENTICATED_CANONICAL_ALLOW",
+  "decision admission status"
+);
+equal(
+  decision.transitionCommitment,
+  transition.transitionCommitment,
+  "decision transition commitment"
+);
+
+const parsedWarrant = parseExactWarrantBodyV0(warrantBodyBytes);
 const store = await openAuthorityStateStoreV0(stateDbPath);
 try {
+  const preConformanceEvents = store.listEvents({
+    issuerKeyId: parsedWarrant.body.issuer_key_id,
+    nonce: parsedWarrant.body.nonce,
+  });
+  const releaseEvents = preConformanceEvents.filter(
+    (event) => event.newState === "PAYLOAD_RELEASED"
+  );
+  if (releaseEvents.length !== 1) {
+    throw new Error(
+      "exactly one PAYLOAD_RELEASED event is required before conformance"
+    );
+  }
+
   const warrant = verifyWarrantV0({
     bodyBytes: warrantBodyBytes,
     signatureBytes: warrantSignatureBytes,
     trustedIssuers: trust.trustedIssuers,
     expectedDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
     expectedTransitionCommitment: transition.transitionCommitment,
-    nowMs: store.currentTimeMs(),
+    nowMs: releaseEvents[0].eventTimestamp,
   });
-
-  equal(decisionSummary.status, "CANONICAL_LOCAL_RELEASE_DECISION_VERIFIED", "decision status");
-  equal(decisionSummary.verdict, "allow", "decision verdict");
-  equal(decisionSummary.integrity, "verified", "decision integrity");
-  equal(decisionSummary.issuerAuthenticity, "verified", "decision issuer authenticity");
-  equal(decisionSummary.transitionCommitment, transition.transitionCommitment, "decision transition commitment");
 
   equal(e2Stage.status, "PAYLOAD_STAGED", "E2 stage status");
   truth(e2Stage.exactPayloadBytesPersisted, "E2 exact payload persistence");
@@ -220,6 +297,12 @@ try {
   equal(providerObservation.instance_id, instanceBinding.instance_id, "provider instance id");
   equal(providerObservation.transaction_hash, instanceBinding.transaction_hash, "provider transaction hash");
 
+  equal(
+    gateZero?.result,
+    "NO_BYPASS_OBSERVED_UNDER_T0_E1_PRE_PROVIDER",
+    "Gate Zero result"
+  );
+  equal(gateZero?.witness_status, "MAIN_PUSH_WITNESS", "Gate Zero witness status");
   if (gateZero?.totals?.bypass_observed !== 0) {
     throw new Error("Gate Zero evidence contains a bypass");
   }
@@ -276,7 +359,7 @@ try {
         new_state: event.newState,
         event_type: event.eventType,
         event_timestamp_ms: event.eventTimestamp,
-        requested_by: event.requestedBy,
+        requesting_component: event.requestingComponent,
         result: event.result,
       })
     )
@@ -307,6 +390,8 @@ try {
     external_provider_independence_proven: false,
     economic_fee_authority_proven: false,
     warrant_originality_proven: false,
+    paygod_decision_independently_reverified: true,
+    warrant_verified_at_release_event_time: true,
   };
 
   await Promise.all([
