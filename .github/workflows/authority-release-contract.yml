@@ -812,6 +812,29 @@ jobs:
           console.log(JSON.stringify(stage, null, 2));
           NODE
 
+      - name: Run T0 A43 staged-payload replacement attack
+        run: |
+          node scripts/t0-a43-stage-replacement-v0.mjs \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --payload out/release/request-identity.artifacts/request-payload.json \
+            --payload-channel controlled-requirement-message/v0 \
+            --payload-recipient 0x3333333333333333333333333333333333333333 \
+            --payload-content-type requirement \
+            --state-db out/release/authority-state.db \
+            --output out/release/gate-zero-client/a43-stage-replacement.json
+
+          jq -e '
+            .attack == "A43" and
+            .result == "REJECTED_AS_EXPECTED" and
+            .observed_code == "S0_STATE_INVALID" and
+            .s0_state_after == "PAYLOAD_STAGED" and
+            .original_payload_preserved == true and
+            .second_stage_accepted == false
+          ' out/release/gate-zero-client/a43-stage-replacement.json >/dev/null
+
       - name: Execute exact local EVM transaction through E1
         run: |
           node scripts/execute-controlled-e1-local-v0.mjs \
@@ -877,6 +900,27 @@ jobs:
 
           console.log(JSON.stringify(e1, null, 2));
           NODE
+
+      - name: Run T0 A13 replay after protected execution
+        run: |
+          node scripts/t0-a13-consumed-replay-v0.mjs \
+            --warrant-body out/release/warrant/warrant-body.json \
+            --warrant-signature out/release/warrant/warrant.sig \
+            --warrant-trust-store out/release/warrant-issuer-trust.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --transaction-proposal out/release/local-evm/transaction-proposal.json \
+            --state-db out/release/authority-state.db \
+            --output out/release/gate-zero-client/a13-consumed-replay.json
+
+          jq -e '
+            .attack == "A13" and
+            .result == "REJECTED_AS_EXPECTED" and
+            .observed_code == "S0_STATE_INVALID" and
+            .state_before == "TX_EXECUTED" and
+            .state_after == "TX_EXECUTED" and
+            .consumed_at_preserved == true and
+            .second_reservation_accepted == false
+          ' out/release/gate-zero-client/a13-consumed-replay.json >/dev/null
 
       - name: Record bounded T0 E1 Gate Zero witness
         run: |
