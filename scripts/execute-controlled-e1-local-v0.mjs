@@ -170,6 +170,28 @@ try {
     expectedDomain: trusted.enforcementDomain,
   });
 
+  const e1Verification = {
+    schema: "workflow-observatory/e1-verification/v0",
+    status: "TX_RESERVED",
+    warrant_verification: "VALID",
+    trusted_issuer: true,
+    enforcement_domain: trusted.enforcementDomain,
+    transition_commitment: reserved.transitionCommitment,
+    chain_id: proposal.chain_id,
+    execution_account: proposal.execution_account,
+    target: proposal.target,
+    calldata_sha256: proposal.calldata_sha256,
+    native_value: proposal.native_value,
+    s0_reservation: "TX_RESERVED",
+    signature_returned_to_caller: false,
+    operational_metadata_supplied_by_caller: false,
+  };
+  await fs.writeFile(
+    path.join(outputDir, "e1-verification.json"),
+    JSON.stringify(e1Verification, null, 2) + "\n",
+    "utf8"
+  );
+
   const send = runCast(castBin, [
     "send",
     proposal.target,
