@@ -136,6 +136,51 @@ function verifyPackContract(receipt, packProfile, codePrefix) {
   }
 }
 
+export function verifyAdmissionDecisionV0({
+  requestShadowCanonicalHash,
+  admissionReceiptBytes,
+  admissionVerification,
+  profile,
+}) {
+  if (profile?.schema !== PROFILE_SCHEMA) {
+    authorityFail(
+      "DECISION_CHAIN_PROFILE_SCHEMA_MISMATCH",
+      "controlled release profile schema is not v0"
+    );
+  }
+  requireProfilePack(profile.admissionPack, "admissionPack");
+  requireSha256(
+    requestShadowCanonicalHash,
+    "DECISION_CHAIN_D1_CANONICAL_HASH_INVALID",
+    "requestShadowCanonicalHash"
+  );
+
+  const d1 = parseAdmissionReceiptV0(admissionReceiptBytes);
+  verifyPackContract(d1.receipt, profile.admissionPack, "DECISION_CHAIN_D1");
+  verifyPortableResult(admissionVerification, "DECISION_CHAIN_D1", profile);
+
+  if (d1.inputCanonicalHash !== requestShadowCanonicalHash) {
+    authorityFail(
+      "DECISION_CHAIN_D1_INPUT_HASH_MISMATCH",
+      "D1 receipt input hash differs from canonical Kernel validation of request-shadow"
+    );
+  }
+
+  return {
+    status: "ADMISSION_DECISION_VERIFIED",
+    receipt: d1.receipt,
+    receiptBytes: d1.bytes,
+    receiptSha256: d1.receiptSha256,
+    inputCanonicalHash: d1.inputCanonicalHash,
+    packDigestSha256: d1.packDigestSha256,
+    verdict: d1.receipt.verdict.value,
+    rule: d1.receipt.verdict.rule_name,
+    integrity: admissionVerification.verification.integrity,
+    issuerAuthenticity: admissionVerification.verification.issuer_authenticity,
+    replay: admissionVerification.verification.replay,
+  };
+}
+
 export function verifyReleaseDecisionChainV0({
   requestShadow,
   requestShadowCanonicalHash,
@@ -170,32 +215,23 @@ export function verifyReleaseDecisionChainV0({
   }
 
   requireSha256(
-    requestShadowCanonicalHash,
-    "DECISION_CHAIN_D1_CANONICAL_HASH_INVALID",
-    "requestShadowCanonicalHash"
-  );
-  requireSha256(
     releaseCandidateCanonicalHash,
     "DECISION_CHAIN_D2_CANONICAL_HASH_INVALID",
     "releaseCandidateCanonicalHash"
   );
 
-  const d1 = parseAdmissionReceiptV0(admissionReceiptBytes);
-  verifyPackContract(d1.receipt, profile.admissionPack, "DECISION_CHAIN_D1");
-  verifyPortableResult(admissionVerification, "DECISION_CHAIN_D1", profile);
-
-  if (d1.inputCanonicalHash !== requestShadowCanonicalHash) {
-    authorityFail(
-      "DECISION_CHAIN_D1_INPUT_HASH_MISMATCH",
-      "D1 receipt input hash differs from canonical Kernel validation of request-shadow"
-    );
-  }
+  const d1 = verifyAdmissionDecisionV0({
+    requestShadowCanonicalHash,
+    admissionReceiptBytes,
+    admissionVerification,
+    profile,
+  });
 
   const candidate = verifyControlledReleaseCandidateV0({
     candidateBytes: releaseCandidateBytes,
     requestShadow,
     transitionEnvelopeBytes,
-    admissionReceiptBytes: d1.bytes,
+    admissionReceiptBytes: d1.receiptBytes,
   });
 
   if (
@@ -246,11 +282,11 @@ export function verifyReleaseDecisionChainV0({
       receiptSha256: d1.receiptSha256,
       inputCanonicalHash: d1.inputCanonicalHash,
       packDigestSha256: d1.packDigestSha256,
-      verdict: d1.receipt.verdict.value,
-      rule: d1.receipt.verdict.rule_name,
-      integrity: admissionVerification.verification.integrity,
-      issuerAuthenticity: admissionVerification.verification.issuer_authenticity,
-      replay: admissionVerification.verification.replay,
+      verdict: d1.verdict,
+      rule: d1.rule,
+      integrity: d1.integrity,
+      issuerAuthenticity: d1.issuerAuthenticity,
+      replay: d1.replay,
     },
     d2: {
       receiptSha256: d2.receiptSha256,
