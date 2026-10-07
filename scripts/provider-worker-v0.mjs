@@ -27,6 +27,15 @@ function requiredHeader(req, name) {
   return value;
 }
 async function writeObservation({ bytes, transition, jobId, txHash, contentType }) {
+  const observationPath = path.join(outputDir, "provider-observation.json");
+  const payloadPath = path.join(outputDir, "provider-received-payload.bin");
+  try {
+    await fs.access(observationPath);
+    throw new Error("provider observation already exists");
+  } catch (err) {
+    if (err?.code !== "ENOENT") throw err;
+  }
+
   const observedAt = Date.now();
   const observation = {
     schema: "workflow-observatory/provider-observation/v0",
@@ -40,14 +49,17 @@ async function writeObservation({ bytes, transition, jobId, txHash, contentType 
     payload_content_type: contentType,
     observed_at_ms: observedAt,
   };
-  await Promise.all([
-    fs.writeFile(path.join(outputDir, "provider-received-payload.bin"), bytes),
-    fs.writeFile(
-      path.join(outputDir, "provider-observation.json"),
+  await fs.writeFile(payloadPath, bytes, { flag: "wx" });
+  try {
+    await fs.writeFile(
+      observationPath,
       JSON.stringify(observation, null, 2) + "\n",
-      "utf8"
-    ),
-  ]);
+      { encoding: "utf8", flag: "wx" }
+    );
+  } catch (err) {
+    await fs.rm(payloadPath, { force: true });
+    throw err;
+  }
   return observation;
 }
 
