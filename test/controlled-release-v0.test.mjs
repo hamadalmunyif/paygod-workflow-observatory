@@ -223,3 +223,30 @@ test("controlled release candidate verifier rejects alternate serialization", ()
     "RELEASE_CANDIDATE_DERIVATION_MISMATCH"
   );
 });
+
+
+test("controlled release candidate requires attempt identity", () => {
+  const tx = envelope();
+  expectCode(
+    () =>
+      buildControlledReleaseCandidateV0({
+        requestShadow: shadow({ request: { attemptId: null } }),
+        transitionEnvelopeBytes: tx.bytes,
+      }),
+    "RELEASE_ATTEMPT_ID_REQUIRED"
+  );
+});
+
+test("controlled release candidate requires attempt commitment", () => {
+  const tx = envelope();
+  expectCode(
+    () =>
+      buildControlledReleaseCandidateV0({
+        requestShadow: shadow({
+          request: { attemptCommitmentSha256: null },
+        }),
+        transitionEnvelopeBytes: tx.bytes,
+      }),
+    "RELEASE_ATTEMPT_COMMITMENT_INVALID"
+  );
+});
