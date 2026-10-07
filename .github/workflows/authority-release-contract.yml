@@ -358,6 +358,14 @@ jobs:
 
           echo "PASS: A44-A46 rejected by the established PayGod verifier."
 
+      - name: Create isolated Warrant issuer trust anchor
+        env:
+          WARRANT_ISSUER_PRIVATE_KEY: ${{ runner.temp }}/paygod-controlled-warrant-issuer-private.pem
+        run: |
+          node scripts/create-controlled-warrant-issuer-anchor.mjs \
+            --private-key-output "$WARRANT_ISSUER_PRIVATE_KEY" \
+            --trust-output out/release/warrant-issuer-trust.json
+
       - name: Issue local Warrant and register S0
         run: |
           node scripts/issue-controlled-warrant-v0.mjs \
@@ -368,6 +376,8 @@ jobs:
             --validate out/release/paygod-validate.json \
             --paygod-bundle out/release/paygod \
             --decision-trust-store out/release/decision-trust-store.json \
+            --warrant-issuer-private-key "${{ runner.temp }}/paygod-controlled-warrant-issuer-private.pem" \
+            --warrant-issuer-trust-store out/release/warrant-issuer-trust.json \
             --state-db out/release/authority-state.db \
             --output-dir out/release/warrant
 
@@ -375,9 +385,18 @@ jobs:
         run: |
           node - <<'NODE'
           const fs = require('fs');
+          const crypto = require('crypto');
           const summary = JSON.parse(
             fs.readFileSync('out/release/warrant/issuance-summary.json', 'utf8')
           );
+          const warrantTrustBytes = fs.readFileSync(
+            'out/release/warrant-issuer-trust.json'
+          );
+          const warrantTrust = JSON.parse(warrantTrustBytes.toString('utf8'));
+          const warrantTrustSha = crypto
+            .createHash('sha256')
+            .update(warrantTrustBytes)
+            .digest('hex');
           if (summary.status !== 'ISSUED') throw new Error('Warrant was not issued');
           if (summary.decisionStatus !== 'AUTHENTICATED_CANONICAL_ALLOW') {
             throw new Error('Warrant did not originate from authenticated canonical allow');
@@ -390,6 +409,25 @@ jobs:
           }
           if (summary.warrantVerification !== 'VALID') {
             throw new Error('Issued Warrant did not independently verify');
+          }
+          if (summary.warrantIssuerTrustExternallyConfigured !== true) {
+            throw new Error('Warrant issuer trust was not externally configured');
+          }
+          if (summary.warrantIssuerTrustStoreSha256 !== warrantTrustSha) {
+            throw new Error('Warrant issuer trust-store digest mismatch');
+          }
+          if (
+            warrantTrust.schema !== 'workflow-observatory/warrant-issuer-trust/v0' ||
+            warrantTrust.enforcement_domain !== 'controlled-harness/t0-v0'
+          ) {
+            throw new Error('Unexpected Warrant issuer trust profile');
+          }
+          if (
+            !Array.isArray(warrantTrust.keys) ||
+            warrantTrust.keys.length !== 1 ||
+            warrantTrust.keys[0].issuer_key_id !== summary.warrantIssuerKeyId
+          ) {
+            throw new Error('Issued Warrant key is not the preconfigured trusted issuer');
           }
           if (summary.issuerBridgeRequiredAuthenticity !== true) {
             throw new Error('Issuer bridge did not require decision issuer authenticity');
@@ -411,9 +449,11 @@ jobs:
           console.log(JSON.stringify(summary, null, 2));
           NODE
 
-      - name: Remove controlled decision private key
+      - name: Remove controlled private keys
         if: always()
-        run: rm -f "${{ runner.temp }}/paygod-controlled-decision-private.pem"
+        run: |
+          rm -f "${{ runner.temp }}/paygod-controlled-decision-private.pem"
+          rm -f "${{ runner.temp }}/paygod-controlled-warrant-issuer-private.pem"
 
       - name: Upload local release contract evidence
         if: always()

@@ -399,6 +399,14 @@ If C can alter those fields through the protected E1 request surface, record `HA
 
 This attack does not claim economic fee protection; the local chain remains valueless.
 
+### A56 — self-authored Warrant trust anchor
+
+Present a Warrant signed by an attacker-controlled Ed25519 key together with a matching attacker-created Warrant issuer trust file.
+
+Expected: E1/E2 reject because verifier trust is taken only from the preconfigured harness trust store.
+
+If a per-request or Warrant-supplied trust file can upgrade the signer to trusted, record `BYPASS_OBSERVED`.
+
 ## 13. Pass condition
 
 The catalogue passes only if:

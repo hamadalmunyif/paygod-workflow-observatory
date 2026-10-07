@@ -6,11 +6,8 @@ import { spawnSync } from "node:child_process";
 
 import { issueControlledWarrantV0 } from "../src/controlled-warrant-issuer-v0.mjs";
 import { openAuthorityStateStoreV0 } from "../src/authority-state-v0.mjs";
-import {
-  exportIssuerPublicKeySpkiDer,
-  generateIssuerKeyPairV0,
-  verifyWarrantV0,
-} from "../src/warrant-v0.mjs";
+import { verifyWarrantV0 } from "../src/warrant-v0.mjs";
+import { resolveWarrantIssuerFromExternalTrustV0 } from "../src/warrant-issuer-trust-v0.mjs";
 
 const PAYGOD_VERIFIER =
   "external/paygod-kernel/tools/verify_portable_evidence.py";
@@ -37,6 +34,8 @@ const profilePath = requiredArg("--profile");
 const validatePath = requiredArg("--validate");
 const paygodBundleDir = requiredArg("--paygod-bundle");
 const decisionTrustStorePath = requiredArg("--decision-trust-store");
+const warrantIssuerPrivateKeyPath = requiredArg("--warrant-issuer-private-key");
+const warrantIssuerTrustStorePath = requiredArg("--warrant-issuer-trust-store");
 const dbPath = requiredArg("--state-db");
 const outputDir = requiredArg("--output-dir");
 const pythonExecutable = argValue("--python") ?? "python3";
@@ -87,6 +86,8 @@ const [
   paygodValidate,
   receiptBytes,
   paygodVerification,
+  warrantIssuerPrivateKeyPem,
+  warrantIssuerTrustStoreBytes,
 ] = await Promise.all([
   readJson(requestShadowPath),
   fs.readFile(transitionEnvelopePath),
@@ -95,12 +96,27 @@ const [
   readJson(validatePath),
   fs.readFile(receiptPath),
   readJson(verifierResultPath),
+  fs.readFile(warrantIssuerPrivateKeyPath, "utf8"),
+  fs.readFile(warrantIssuerTrustStorePath),
 ]);
+
+let warrantIssuerTrustStore;
+try {
+  warrantIssuerTrustStore = JSON.parse(
+    warrantIssuerTrustStoreBytes.toString("utf8")
+  );
+} catch {
+  throw new Error("Warrant issuer trust store is not valid JSON");
+}
+
+const issuerIdentity = resolveWarrantIssuerFromExternalTrustV0({
+  privateKeyPem: warrantIssuerPrivateKeyPem,
+  trustStore: warrantIssuerTrustStore,
+  trustStoreBytes: warrantIssuerTrustStoreBytes,
+});
 
 const store = await openAuthorityStateStoreV0(dbPath);
 try {
-  const { publicKey, privateKey } = generateIssuerKeyPairV0();
-
   const issued = issueControlledWarrantV0({
     candidateBytes,
     requestShadow,
@@ -109,21 +125,24 @@ try {
     paygodValidate,
     receiptBytes,
     paygodVerification,
-    issuerPrivateKey: privateKey,
-    issuerPublicKey: publicKey,
+    issuerPrivateKey: issuerIdentity.privateKey,
+    issuerPublicKey: issuerIdentity.publicKey,
     authorityStateStore: store,
     validityMs: 60_000,
   });
 
-  const publicDer = exportIssuerPublicKeySpkiDer(publicKey);
+  if (issued.warrant.body.issuer_key_id !== issuerIdentity.issuerKeyId) {
+    throw new Error("issued Warrant key id differs from external issuer trust anchor");
+  }
+
   const trustedIssuers = new Map([
-    [issued.warrant.body.issuer_key_id, publicDer],
+    [issuerIdentity.issuerKeyId, issuerIdentity.publicKeySpkiDer],
   ]);
   const verified = verifyWarrantV0({
     bodyBytes: issued.warrant.bodyBytes,
     signatureBytes: issued.warrant.signatureBytes,
     trustedIssuers,
-    expectedDomain: issued.warrant.body.enforcement_domain,
+    expectedDomain: issuerIdentity.enforcementDomain,
     expectedTransitionCommitment: issued.warrant.body.transition_commitment,
     nowMs: issued.audit.issued_at,
   });
@@ -152,20 +171,6 @@ try {
       "utf8"
     ),
     fs.writeFile(
-      path.join(outputDir, "warrant-trust.json"),
-      JSON.stringify(
-        {
-          profile: "controlled-harness/warrant-trust/v0",
-          issuer_key_id: issued.warrant.body.issuer_key_id,
-          algorithm: "Ed25519",
-          public_key_spki_der_base64: publicDer.toString("base64"),
-        },
-        null,
-        2
-      ) + "\n",
-      "utf8"
-    ),
-    fs.writeFile(
       path.join(outputDir, "warrant-verification.json"),
       JSON.stringify(verified, null, 2) + "\n",
       "utf8"
@@ -182,12 +187,14 @@ try {
     attemptCommitmentSha256: issued.decision.attemptCommitmentSha256,
     transitionCommitment: issued.decision.transitionCommitment,
     warrantIssuerKeyId: issued.warrant.body.issuer_key_id,
+    warrantIssuerTrustStoreSha256: issuerIdentity.trustStoreSha256,
     warrantBodySha256: issued.warrant.bodySha256,
     warrantNonce: issued.warrant.body.nonce,
     s0State: issued.state.state,
     warrantVerification: verified.status,
     issuerBridgeVerifier: PAYGOD_VERIFIER,
     issuerBridgeRequiredAuthenticity: true,
+    warrantIssuerTrustExternallyConfigured: true,
     e1Executed: false,
     e2Executed: false,
     evmTransactionSubmitted: false,
