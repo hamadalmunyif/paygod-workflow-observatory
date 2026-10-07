@@ -10,22 +10,25 @@ function argValue(name) {
 
 const requestShadowPath = argValue("--request-shadow");
 const transitionEnvelopePath = argValue("--transition-envelope");
+const admissionReceiptPath = argValue("--admission-receipt");
 const outputPath = argValue("--output");
 
-if (!requestShadowPath || !transitionEnvelopePath || !outputPath) {
+if (!requestShadowPath || !transitionEnvelopePath || !admissionReceiptPath || !outputPath) {
   throw new Error(
-    "Usage: build-controlled-release-candidate --request-shadow <json> --transition-envelope <json> --output <json>"
+    "Usage: build-controlled-release-candidate --request-shadow <json> --transition-envelope <json> --admission-receipt <receipt.json> --output <json>"
   );
 }
 
-const [requestShadow, transitionEnvelopeBytes] = await Promise.all([
+const [requestShadow, transitionEnvelopeBytes, admissionReceiptBytes] = await Promise.all([
   fs.readFile(requestShadowPath, "utf8").then(JSON.parse),
   fs.readFile(transitionEnvelopePath),
+  fs.readFile(admissionReceiptPath),
 ]);
 
 const result = buildControlledReleaseCandidateV0({
   requestShadow,
   transitionEnvelopeBytes,
+  admissionReceiptBytes,
 });
 
 await fs.writeFile(outputPath, result.bytes);
@@ -33,4 +36,5 @@ await fs.writeFile(outputPath, result.bytes);
 console.log("Controlled release candidate written: " + outputPath);
 console.log("Request identity: " + result.admittedRequestIdentitySha256);
 console.log("Transition commitment: " + result.transitionCommitment);
+console.log("Admission receipt SHA-256: " + result.admissionReceiptSha256);
 console.log("External execution authority: false");
