@@ -41,7 +41,7 @@ No verifier may reconstruct or re-serialize the body and silently treat differen
 ```json
 {
   "schema": "paygod/warrant/v0",
-  "enforcement_domain": "controlled-acp/t0",
+  "enforcement_domain": "controlled-harness/t0-v0",
   "transition_commitment": "<sha256>",
   "not_before": "<time>",
   "expires_at": "<time>",
@@ -99,6 +99,8 @@ Replay after consumption must fail.
 
 Concurrent double use must allow at most one success.
 
+A mathematically valid detached signature is not sufficient for the controlled harness: the exact warrant body must also have a matching successful `ISSUED` registration in S0.
+
 ## 8. Issuer key
 
 `issuer_key_id` identifies the public key the verifier is configured to trust.
@@ -127,7 +129,12 @@ A v0 enforcement verifier must:
 5. verify the validity time window under the declared time source;
 6. verify that the referenced transition envelope bytes hash to `transition_commitment`;
 7. verify the verifier's own execution surface against that envelope;
-8. atomically verify-and-consume the nonce before authorizing the protected transition.
+8. verify that the warrant is registered in S0 with the same exact body digest and binding fields;
+9. enforce the verifier's assigned state-machine role.
+
+For the controlled harness, E2 does **not** consume the nonce. E2 validates the registered warrant and stages the exact payload.
+
+E1 is the designated consuming enforcer. E1 atomically transitions S0 from `PAYLOAD_STAGED` to `TX_RESERVED`; that transition irreversibly consumes the nonce before transaction authorization.
 
 The verifier must not need to evaluate PayGod evidence or rerun PayGod policy.
 
@@ -170,7 +177,9 @@ Warrant v0 fails its purpose if any of the following is possible inside T0:
 - two successful concurrent uses of one nonce;
 - acceptance after Agent-controlled nonce-state rollback;
 - acceptance in the wrong enforcement domain;
-- verifier acceptance that requires trusting producer-written authority labels.
+- verifier acceptance that requires trusting producer-written authority labels;
+- acceptance of a signed but unregistered warrant;
+- acceptance when the exact warrant-body digest differs from the digest registered in S0.
 
 ## 13. Non-claims
 
