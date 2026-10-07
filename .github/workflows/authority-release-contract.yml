@@ -301,6 +301,63 @@ jobs:
           console.log(JSON.stringify(summary, null, 2));
           NODE
 
+      - name: Adversarially verify D-to-I authenticity boundary
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/adversarial
+
+          cp -R out/release/paygod out/release/adversarial/unsigned
+          rm -f out/release/adversarial/unsigned/receipt.sig.json
+          if python3 external/paygod-kernel/tools/verify_portable_evidence.py \
+            out/release/adversarial/unsigned \
+            --trusted-issuer-keys out/release/decision-trust-store.json \
+            --require-issuer-authenticity \
+            --result out/release/adversarial/unsigned-result.json; then
+            echo "A44 failed: unsigned receipt was accepted"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          trust = json.loads(Path('out/release/decision-trust-store.json').read_text())
+          trust['keys'] = []
+          Path('out/release/adversarial/untrusted-store.json').write_text(
+              json.dumps(trust, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+          if python3 external/paygod-kernel/tools/verify_portable_evidence.py \
+            out/release/paygod \
+            --trusted-issuer-keys out/release/adversarial/untrusted-store.json \
+            --require-issuer-authenticity \
+            --result out/release/adversarial/untrusted-result.json; then
+            echo "A45 failed: untrusted signer was accepted"
+            exit 1
+          fi
+
+          cp -R out/release/paygod out/release/adversarial/mutated
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('out/release/adversarial/mutated/receipt.json')
+          receipt = json.loads(p.read_text())
+          receipt['verdict']['rule_name'] = 'mutated-after-signing'
+          p.write_text(json.dumps(receipt, separators=(',', ':')), encoding='utf-8')
+          PY
+
+          if python3 external/paygod-kernel/tools/verify_portable_evidence.py \
+            out/release/adversarial/mutated \
+            --trusted-issuer-keys out/release/decision-trust-store.json \
+            --require-issuer-authenticity \
+            --result out/release/adversarial/mutated-result.json; then
+            echo "A46 failed: mutated signed receipt was accepted"
+            exit 1
+          fi
+
+          echo "PASS: A44-A46 rejected by the established PayGod verifier."
+
       - name: Issue local Warrant and register S0
         run: |
           node scripts/issue-controlled-warrant-v0.mjs \
@@ -309,8 +366,8 @@ jobs:
             --candidate out/release/release-candidate.json \
             --profile contracts/controlled-release-profile-v0.json \
             --validate out/release/paygod-validate.json \
-            --receipt out/release/paygod/receipt.json \
-            --verification out/release/paygod-verification.json \
+            --paygod-bundle out/release/paygod \
+            --decision-trust-store out/release/decision-trust-store.json \
             --state-db out/release/authority-state.db \
             --output-dir out/release/warrant
 
@@ -333,6 +390,15 @@ jobs:
           }
           if (summary.warrantVerification !== 'VALID') {
             throw new Error('Issued Warrant did not independently verify');
+          }
+          if (summary.issuerBridgeRequiredAuthenticity !== true) {
+            throw new Error('Issuer bridge did not require decision issuer authenticity');
+          }
+          if (
+            summary.issuerBridgeVerifier !==
+            'external/paygod-kernel/tools/verify_portable_evidence.py'
+          ) {
+            throw new Error('Issuer bridge did not use the pinned PayGod verifier path');
           }
           if (
             summary.e1Executed !== false ||

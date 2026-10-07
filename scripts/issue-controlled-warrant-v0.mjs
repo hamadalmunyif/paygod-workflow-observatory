@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import fs from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
+import { spawnSync } from "node:child_process";
 
 import { issueControlledWarrantV0 } from "../src/controlled-warrant-issuer-v0.mjs";
 import { openAuthorityStateStoreV0 } from "../src/authority-state-v0.mjs";
@@ -10,36 +12,72 @@ import {
   verifyWarrantV0,
 } from "../src/warrant-v0.mjs";
 
+const PAYGOD_VERIFIER =
+  "external/paygod-kernel/tools/verify_portable_evidence.py";
+
 function argValue(name) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : null;
 }
 
-const requestShadowPath = argValue("--request-shadow");
-const transitionEnvelopePath = argValue("--transition-envelope");
-const candidatePath = argValue("--candidate");
-const profilePath = argValue("--profile");
-const validatePath = argValue("--validate");
-const receiptPath = argValue("--receipt");
-const verificationPath = argValue("--verification");
-const dbPath = argValue("--state-db");
-const outputDir = argValue("--output-dir");
+function requiredArg(name) {
+  const value = argValue(name);
+  if (!value) throw new Error(`Missing required argument: ${name}`);
+  return value;
+}
 
-if (
-  !requestShadowPath ||
-  !transitionEnvelopePath ||
-  !candidatePath ||
-  !profilePath ||
-  !validatePath ||
-  !receiptPath ||
-  !verificationPath ||
-  !dbPath ||
-  !outputDir
-) {
+async function readJson(file) {
+  return JSON.parse(await fs.readFile(file, "utf8"));
+}
+
+const requestShadowPath = requiredArg("--request-shadow");
+const transitionEnvelopePath = requiredArg("--transition-envelope");
+const candidatePath = requiredArg("--candidate");
+const profilePath = requiredArg("--profile");
+const validatePath = requiredArg("--validate");
+const paygodBundleDir = requiredArg("--paygod-bundle");
+const decisionTrustStorePath = requiredArg("--decision-trust-store");
+const dbPath = requiredArg("--state-db");
+const outputDir = requiredArg("--output-dir");
+const pythonExecutable = argValue("--python") ?? "python3";
+
+await fs.mkdir(outputDir, { recursive: true });
+await fs.mkdir(path.dirname(dbPath), { recursive: true });
+
+const verifierResultPath = path.join(
+  outputDir,
+  "issuer-paygod-verification.json"
+);
+
+const verifier = spawnSync(
+  pythonExecutable,
+  [
+    PAYGOD_VERIFIER,
+    paygodBundleDir,
+    "--trusted-issuer-keys",
+    decisionTrustStorePath,
+    "--require-issuer-authenticity",
+    "--result",
+    verifierResultPath,
+  ],
+  {
+    stdio: "inherit",
+    env: process.env,
+  }
+);
+
+if (verifier.error) {
   throw new Error(
-    "Usage: issue-controlled-warrant-v0 --request-shadow <json> --transition-envelope <json> --candidate <json> --profile <json> --validate <json> --receipt <json> --verification <json> --state-db <sqlite> --output-dir <dir>"
+    `PayGod standalone verifier could not be started: ${verifier.error.message}`
   );
 }
+if (verifier.status !== 0) {
+  throw new Error(
+    `PayGod standalone verifier rejected the decision bundle (exit ${verifier.status})`
+  );
+}
+
+const receiptPath = path.join(paygodBundleDir, "receipt.json");
 
 const [
   requestShadow,
@@ -50,16 +88,14 @@ const [
   receiptBytes,
   paygodVerification,
 ] = await Promise.all([
-  fs.readFile(requestShadowPath, "utf8").then(JSON.parse),
+  readJson(requestShadowPath),
   fs.readFile(transitionEnvelopePath),
   fs.readFile(candidatePath),
-  fs.readFile(profilePath, "utf8").then(JSON.parse),
-  fs.readFile(validatePath, "utf8").then(JSON.parse),
+  readJson(profilePath),
+  readJson(validatePath),
   fs.readFile(receiptPath),
-  fs.readFile(verificationPath, "utf8").then(JSON.parse),
+  readJson(verifierResultPath),
 ]);
-
-await fs.mkdir(outputDir, { recursive: true });
 
 const store = await openAuthorityStateStoreV0(dbPath);
 try {
@@ -98,25 +134,25 @@ try {
 
   await Promise.all([
     fs.writeFile(
-      outputDir + "/warrant-body.json",
+      path.join(outputDir, "warrant-body.json"),
       issued.warrant.bodyBytes
     ),
     fs.writeFile(
-      outputDir + "/warrant.sig",
+      path.join(outputDir, "warrant.sig"),
       issued.warrant.signatureBytes
     ),
     fs.writeFile(
-      outputDir + "/warrant-issuance-audit.json",
+      path.join(outputDir, "warrant-issuance-audit.json"),
       JSON.stringify(issued.audit, null, 2) + "\n",
       "utf8"
     ),
     fs.writeFile(
-      outputDir + "/s0-issued.json",
+      path.join(outputDir, "s0-issued.json"),
       JSON.stringify(issued.state, null, 2) + "\n",
       "utf8"
     ),
     fs.writeFile(
-      outputDir + "/warrant-trust.json",
+      path.join(outputDir, "warrant-trust.json"),
       JSON.stringify(
         {
           profile: "controlled-harness/warrant-trust/v0",
@@ -130,7 +166,7 @@ try {
       "utf8"
     ),
     fs.writeFile(
-      outputDir + "/warrant-verification.json",
+      path.join(outputDir, "warrant-verification.json"),
       JSON.stringify(verified, null, 2) + "\n",
       "utf8"
     ),
@@ -150,6 +186,8 @@ try {
     warrantNonce: issued.warrant.body.nonce,
     s0State: issued.state.state,
     warrantVerification: verified.status,
+    issuerBridgeVerifier: PAYGOD_VERIFIER,
+    issuerBridgeRequiredAuthenticity: true,
     e1Executed: false,
     e2Executed: false,
     evmTransactionSubmitted: false,
@@ -157,7 +195,7 @@ try {
   };
 
   await fs.writeFile(
-    outputDir + "/issuance-summary.json",
+    path.join(outputDir, "issuance-summary.json"),
     JSON.stringify(summary, null, 2) + "\n",
     "utf8"
   );
