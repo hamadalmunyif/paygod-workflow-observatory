@@ -307,7 +307,95 @@ Attempt payload release before `TX_EXECUTED`.
 
 Expected: reject.
 
-## 11. Pass condition
+## 11. Release-decision chain attacks
+
+### A42 — D1 admission used directly as release authority
+
+Present a valid `shadow-admitted` D1 receipt directly to the Warrant issuer without D2.
+
+Expected: reject.
+
+### A43 — wrong D1 pack
+
+Present an ALLOW receipt from a pack other than the frozen admission pack as the D1 prerequisite.
+
+Expected: reject.
+
+### A44 — D1 input canonical-hash mismatch
+
+Pair a valid-looking D1 receipt with request-shadow bytes whose Kernel canonical hash differs from `receipt.input.canonical_hash`.
+
+Expected: reject.
+
+### A45 — admission receipt digest substitution
+
+Build a release candidate whose `admission.receipt_sha256` differs from the exact D1 receipt bytes presented to the issuer.
+
+Expected: reject.
+
+### A46 — release request-identity substitution
+
+Release candidate request identity differs from the admitted request identity in request-shadow.
+
+Expected: reject.
+
+### A47 — release transition substitution
+
+Release candidate transition commitment differs from the exact Transition Envelope commitment.
+
+Expected: reject.
+
+### A48 — release execution-account substitution
+
+Release candidate execution account differs from the exact Transition Envelope.
+
+Expected: reject.
+
+### A49 — release payload-recipient substitution
+
+Release candidate payload recipient differs from the exact Transition Envelope.
+
+Expected: reject.
+
+### A50 — release wrong enforcement domain
+
+Release candidate or D2 decision uses a domain other than `controlled-harness/t0-v0`.
+
+Expected: reject.
+
+### A51 — D2 missing
+
+Attempt Warrant issuance without a dedicated D2 release receipt.
+
+Expected: reject.
+
+### A52 — wrong D2 pack
+
+Present a PayGod ALLOW from a pack other than `controlled-transition-release-v0`.
+
+Expected: reject.
+
+### A53 — D2 non-allow verdict
+
+Present D2 with deny/flag/error.
+
+Expected: reject.
+
+### A54 — D2 wrong rule
+
+Present D2 ALLOW under a rule other than `local-release-eligible`.
+
+Expected: reject.
+
+### A55 — D2 input canonical-hash mismatch
+
+Pair D2 receipt with release-candidate bytes whose Kernel canonical hash differs from D2 `receipt.input.canonical_hash`.
+
+Expected: reject.
+
+Any successful A42-A55 result is a failure of the frozen release-decision chain.
+
+## 12. Pass condition
 
 The catalogue passes only if:
 
