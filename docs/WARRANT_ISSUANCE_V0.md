@@ -19,16 +19,24 @@ The issuer must not issue authority independently of the canonical decision path
 
 ## 2. Issuance preconditions
 
+The issuer may sign a Warrant v0 only from the dedicated D2 release-decision chain defined in `RELEASE_DECISION_CONTRACT_V0.md`.
+
+The existing D1 `acp-request-admission-shadow` ALLOW is explicitly **not releasable authority**.
+
 The issuer may sign a Warrant v0 only if all of the following are true:
 
-1. a canonical PayGod decision artifact exists;
-2. the decision outcome is exactly an allowed/releasable outcome defined for the harness;
-3. the decision is bound to the frozen request identity;
-4. the proposed Transition Envelope refers to that same request identity;
-5. the transition was derived under the frozen harness transformation profile;
-6. the transition commitment is computed from the exact frozen envelope bytes;
-7. the requested enforcement domain matches the configured harness domain;
-8. no existing warrant has already been issued for the same attempt in a way forbidden by the harness issuance policy.
+1. a valid D1 admission chain exists and is linked to the exact request-shadow input;
+2. a dedicated D2 canonical release decision exists;
+3. D2 pack name/version equal the frozen local release pack;
+4. D2 verdict/rule equal the frozen releasable result;
+5. D2 input canonical hash matches Kernel validation of the exact release-candidate input;
+6. release candidate binds the exact D1 receipt digest;
+7. release candidate request identity equals the admitted request identity;
+8. the proposed Transition Envelope refers to that same request identity;
+9. transition commitment is computed from the exact frozen envelope bytes;
+10. execution account and payload recipient match the exact Transition Envelope;
+11. requested enforcement domain matches the configured harness domain;
+12. no existing warrant has already been issued for the same attempt in a way forbidden by the harness issuance policy.
 
 A failure in any precondition is fail-closed.
 
@@ -40,6 +48,8 @@ The issuer API must not expose:
 - sign arbitrary transition commitment;
 - choose an arbitrary request identity without canonical decision evidence;
 - override a denied PayGod decision;
+- reinterpret D1 shadow admission as D2 release authority;
+- issue from a generic PayGod ALLOW produced by the wrong pack;
 - issue for an unknown enforcement domain.
 
 If any such path exists within T0, it is an authority bypass.
@@ -192,3 +202,18 @@ It does not prove:
 - external trust in the issuer;
 - legal or economic authority of the issuer;
 - portability to other enforcers.
+
+
+## 12. D1/D2 semantic gate
+
+The issuer must fail closed if presented only with the existing shadow-admission receipt.
+
+Required semantic chain:
+
+`D1 admission -> Transition Envelope -> D2 release decision -> Warrant`
+
+Not permitted:
+
+`D1 admission -> Warrant`
+
+This distinction is decision-critical and must remain visible in tests and post-flight evidence.
