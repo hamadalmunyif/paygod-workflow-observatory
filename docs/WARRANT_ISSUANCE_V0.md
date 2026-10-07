@@ -128,6 +128,20 @@ This prevents two independently returned warrants from silently sharing the same
 
 ## 9. Trusted issuer configuration
 
+The controlled harness trust direction is frozen in:
+
+`WARRANT_ISSUER_TRUST_BOUNDARY_V0.md`
+
+The Warrant issuer key pair/trust store is provisioned before issuance.
+
+The issuer private key is supplied only to I.
+
+E1/E2/V use the separately provisioned public trust store and must not trust a public key or trust file merely because it was emitted alongside a Warrant.
+
+I may read the external trust store only to prove that its own private key corresponds to a preconfigured trusted issuer.
+
+
+
 E1 and E2 use a pinned, read-only trusted-issuer configuration.
 
 The client must not have a supported runtime path to:
