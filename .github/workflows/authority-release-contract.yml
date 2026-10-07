@@ -23,6 +23,40 @@ jobs:
       - name: Run observatory tests
         run: npm test
 
+      - name: Discover and assert frozen decision-pack digests
+        run: |
+          mkdir -p out/release
+          node - <<'NODE'
+          const fs = require('fs');
+          const crypto = require('crypto');
+
+          const profile = JSON.parse(
+            fs.readFileSync('contracts/controlled-release-profile-v0.json', 'utf8')
+          );
+          const digest = (path) =>
+            crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
+
+          const actual = {
+            admission: digest(profile.admissionPack.path + '/pack.yaml'),
+            release: digest(profile.pack.path + '/pack.yaml')
+          };
+          fs.writeFileSync(
+            'out/release/pack-digests.json',
+            JSON.stringify(actual, null, 2) + '\n'
+          );
+          console.log(JSON.stringify(actual, null, 2));
+
+          if (
+            profile.admissionPack.digestSha256 !== actual.admission ||
+            profile.pack.digestSha256 !== actual.release
+          ) {
+            throw new Error(
+              'DECISION_PACK_DIGESTS_UNPINNED ' +
+              'D1=' + actual.admission + ' D2=' + actual.release
+            );
+          }
+          NODE
+
       - name: Build fixture Observation Pack
         run: |
           node bin/workflow-observatory.mjs discover             --input test/fixtures/browse.json             --query risk             --output-dir out/release/observation-pack
@@ -40,21 +74,6 @@ jobs:
           OFFERING_NAME: "Company Risk Analysis"
         run: |
           node scripts/build-shadow-request.mjs             --raw out/release/observation-pack/raw.json             --normalized out/release/observation-pack/normalized.json             --manifest out/release/observation-pack/manifest.json             --request-identity out/release/request-identity.json             --offering "$OFFERING_NAME"             --output out/release/request-shadow.json
-
-      - name: Build local Transition Envelope
-        run: |
-          node scripts/build-controlled-transition-fixture.mjs             --request-shadow out/release/request-shadow.json             --output out/release/transition-envelope.json
-
-      - name: Build controlled Release Candidate
-        run: |
-          node scripts/build-controlled-release-candidate.mjs             --request-shadow out/release/request-shadow.json             --transition-envelope out/release/transition-envelope.json             --output out/release/release-candidate.json
-
-      - name: Verify exact Release Candidate derivation
-        run: |
-          node scripts/verify-controlled-release-candidate.mjs \
-            --request-shadow out/release/request-shadow.json \
-            --transition-envelope out/release/transition-envelope.json \
-            --candidate out/release/release-candidate.json
 
       - name: Checkout pinned PayGod kernel
         uses: actions/checkout@v4
@@ -76,138 +95,102 @@ jobs:
         run: |
           dotnet publish             external/paygod-kernel/src/PayGod.Cli/PayGod.Cli.csproj             -c Release             -o out/paygod-cli
 
-      - name: Canonically hash Release Candidate
+      - name: Canonically hash D1 request shadow
         run: |
-          dotnet out/paygod-cli/PayGod.Cli.dll validate             --input out/release/release-candidate.json             --json | tee out/release/paygod-validate.json
+          dotnet out/paygod-cli/PayGod.Cli.dll validate             --input out/release/request-shadow.json             --json | tee out/release/d1-validate.json
 
-      - name: Run canonical controlled release decision
+      - name: Run canonical D1 admission decision
         env:
           PAYGOD_CLOCK: "2026-10-07T00:00:00Z"
-          PAYGOD_RUNNER_IMAGE: "paygod/controlled-harness"
+          PAYGOD_RUNNER_IMAGE: "paygod/controlled-harness-admission"
           PAYGOD_RUNNER_DIGEST: "git:23ea2cca74ef8b698718c6d0c8dbda447f13bb37"
         run: |
-          mkdir -p out/release/paygod
-          dotnet out/paygod-cli/PayGod.Cli.dll run             --pack packs/controlled-authority-release-v0             --input out/release/release-candidate.json             --out out/release/paygod
+          mkdir -p out/release/d1-paygod
+          dotnet out/paygod-cli/PayGod.Cli.dll run             --pack packs/acp-request-admission-shadow             --input out/release/request-shadow.json             --out out/release/d1-paygod
 
-      - name: Verify canonical PayGod evidence bundle
+      - name: Verify canonical D1 evidence bundle
         run: |
-          python3 external/paygod-kernel/tools/verify_portable_evidence.py             out/release/paygod             --result out/release/paygod-verification.json
+          python3 external/paygod-kernel/tools/verify_portable_evidence.py             out/release/d1-paygod             --result out/release/d1-verification.json
 
-      - name: Assert canonical release contract
+      - name: Gate D1 before D2
+        run: |
+          node scripts/verify-admission-decision.mjs             --kernel-cli out/paygod-cli/PayGod.Cli.dll             --request-shadow out/release/request-shadow.json             --admission-receipt out/release/d1-paygod/receipt.json             --admission-verification out/release/d1-verification.json             --profile contracts/controlled-release-profile-v0.json             --output out/release/d1-chain-gate.json
+
+      - name: Build local Transition Envelope
+        run: |
+          node scripts/build-controlled-transition-fixture.mjs             --request-shadow out/release/request-shadow.json             --output out/release/transition-envelope.json
+
+      - name: Build D1-bound controlled Release Candidate
+        run: |
+          node scripts/build-controlled-release-candidate.mjs             --request-shadow out/release/request-shadow.json             --transition-envelope out/release/transition-envelope.json             --admission-receipt out/release/d1-paygod/receipt.json             --output out/release/release-candidate.json
+
+      - name: Verify exact D1-bound Release Candidate derivation
+        run: |
+          node scripts/verify-controlled-release-candidate.mjs             --request-shadow out/release/request-shadow.json             --transition-envelope out/release/transition-envelope.json             --admission-receipt out/release/d1-paygod/receipt.json             --candidate out/release/release-candidate.json
+
+      - name: Canonically hash D2 Release Candidate
+        run: |
+          dotnet out/paygod-cli/PayGod.Cli.dll validate             --input out/release/release-candidate.json             --json | tee out/release/d2-validate.json
+
+      - name: Run canonical D2 controlled release decision
+        env:
+          PAYGOD_CLOCK: "2026-10-07T00:00:00Z"
+          PAYGOD_RUNNER_IMAGE: "paygod/controlled-harness-release"
+          PAYGOD_RUNNER_DIGEST: "git:23ea2cca74ef8b698718c6d0c8dbda447f13bb37"
+        run: |
+          mkdir -p out/release/d2-paygod
+          dotnet out/paygod-cli/PayGod.Cli.dll run             --pack packs/controlled-authority-release-v0             --input out/release/release-candidate.json             --out out/release/d2-paygod
+
+      - name: Verify canonical D2 evidence bundle
+        run: |
+          python3 external/paygod-kernel/tools/verify_portable_evidence.py             out/release/d2-paygod             --result out/release/d2-verification.json
+
+      - name: Verify full D1 to D2 decision chain
+        run: |
+          node scripts/verify-release-decision-chain.mjs             --kernel-cli out/paygod-cli/PayGod.Cli.dll             --request-shadow out/release/request-shadow.json             --admission-receipt out/release/d1-paygod/receipt.json             --admission-verification out/release/d1-verification.json             --transition-envelope out/release/transition-envelope.json             --release-candidate out/release/release-candidate.json             --release-receipt out/release/d2-paygod/receipt.json             --release-verification out/release/d2-verification.json             --profile contracts/controlled-release-profile-v0.json             --output out/release/decision-chain.json
+
+      - name: Assert decision-chain claim boundary
         run: |
           node - <<'NODE'
           const fs = require('fs');
-          const crypto = require('crypto');
-
-          const profile = JSON.parse(fs.readFileSync('contracts/controlled-release-profile-v0.json', 'utf8'));
-          const validate = JSON.parse(fs.readFileSync('out/release/paygod-validate.json', 'utf8'));
-          const receipt = JSON.parse(fs.readFileSync('out/release/paygod/receipt.json', 'utf8'));
-          const verified = JSON.parse(fs.readFileSync('out/release/paygod-verification.json', 'utf8'));
-          const candidate = JSON.parse(fs.readFileSync('out/release/release-candidate.json', 'utf8'));
-          const packBytes = fs.readFileSync(profile.pack.path + '/pack.yaml');
-          const packSha = crypto.createHash('sha256').update(packBytes).digest('hex');
-          const expectedPackSha = 'ea21e54e165c90418a6d4a903108441fa6d7c0e2c425adc14c0f62a430b9dc7b';
-
-          if (profile.paygodKernelCommit !== '23ea2cca74ef8b698718c6d0c8dbda447f13bb37') {
-            throw new Error('Controlled release profile kernel commit drifted');
+          const chain = JSON.parse(fs.readFileSync('out/release/decision-chain.json', 'utf8'));
+          if (chain.status !== 'DECISION_CHAIN_VERIFIED') {
+            throw new Error('Decision chain did not verify');
           }
-          if (profile.standaloneVerifierVersion !== verified.verifier_version) {
-            throw new Error('Standalone verifier version differs from frozen profile');
+          if (chain.d1.verdict !== 'allow' || chain.d1.rule !== 'shadow-admitted') {
+            throw new Error('Unexpected D1 decision');
           }
-          if (profile.pack.digestSha256 !== expectedPackSha) {
-            throw new Error('Controlled release profile pack digest differs from pinned workflow digest');
+          if (chain.d2.verdict !== 'allow' || chain.d2.rule !== 'controlled-local-release') {
+            throw new Error('Unexpected D2 decision');
           }
-          if (profile.pack.name !== 'controlled-authority-release-v0' || profile.pack.version !== '0.1.0') {
-            throw new Error('Controlled release profile pack identity drifted');
+          if (chain.d1.issuerAuthenticity !== 'not_verified' ||
+              chain.d2.issuerAuthenticity !== 'not_verified') {
+            throw new Error('Unexpected receipt authenticity upgrade');
           }
-          if (profile.pack.allowedVerdict !== 'allow' || profile.pack.allowedRule !== 'controlled-local-release') {
-            throw new Error('Controlled release profile verdict contract drifted');
+          if (chain.d1.replay !== 'not_performed' ||
+              chain.d2.replay !== 'not_performed') {
+            throw new Error('Unexpected decision replay claim');
           }
-          if (profile.paygodReceiptIssuerAuthenticityRequired !== false) {
-            throw new Error('Profile unexpectedly claims PayGod receipt issuer authenticity');
+          if (chain.externalExecutionAuthorized !== false) {
+            throw new Error('Decision chain upgraded external execution authority');
           }
-          if (profile.paygodDecisionReplayPerformed !== false) {
-            throw new Error('Profile unexpectedly claims PayGod decision replay');
-          }
-          if (validate.status !== 'success') throw new Error('PayGod validate did not succeed');
-          if (verified.status !== 'valid' || verified.verification?.integrity !== 'verified') {
-            throw new Error('Standalone PayGod verifier did not verify integrity');
-          }
-          if (verified.verification?.issuer_authenticity !== 'not_verified') {
-            throw new Error('Unexpected PayGod receipt issuer-authenticity state');
-          }
-          if (verified.verification?.replay !== 'not_performed') {
-            throw new Error('Unexpected PayGod decision replay state');
-          }
-          if (receipt.input?.canonical_hash !== validate.data?.hash) {
-            throw new Error('Receipt input canonical hash differs from canonical validate hash');
-          }
-          if (receipt.pack?.name !== profile.pack.name) {
-            throw new Error('Unexpected release pack name');
-          }
-          if (receipt.pack?.version !== profile.pack.version) {
-            throw new Error('Unexpected release pack version');
-          }
-          if (packSha !== expectedPackSha) {
-            throw new Error(`Release pack digest drifted from pinned v0 digest: ${packSha}`);
-          }
-          if (receipt.pack?.digest_sha256 !== expectedPackSha) {
-            throw new Error('Receipt pack digest differs from pinned controlled release v0 digest');
-          }
-          if (receipt.verdict?.value !== profile.pack.allowedVerdict) {
-            throw new Error('Expected canonical release verdict allow');
-          }
-          if (receipt.verdict?.rule_name !== profile.pack.allowedRule) {
-            throw new Error('Expected controlled-local-release rule');
-          }
-          if (
-            candidate.request?.admitted_request_identity_sha256 !==
-            candidate.transition?.request_identity_sha256
-          ) {
-            throw new Error('Candidate request/transition identity mismatch');
-          }
-          if (
-            candidate.request?.request_payload_sha256 !==
-            candidate.transition?.payload?.payload_sha256
-          ) {
-            throw new Error('Candidate request/transition payload mismatch');
-          }
-          if (candidate.transition?.chain_id !== profile.chainId) {
-            throw new Error('Release candidate escaped frozen local chain');
-          }
-          if (candidate.authority?.enforcement_domain !== profile.enforcementDomain) {
-            throw new Error('Release candidate escaped frozen enforcement domain');
-          }
-          if (
-            candidate.authority?.external_execution_authorized !==
-            profile.externalExecutionAuthorized
-          ) {
-            throw new Error('Release candidate external execution authority mismatch');
-          }
-
-          const summary = {
-            status: 'CANONICAL_LOCAL_RELEASE_DECISION_VERIFIED',
-            canonicalInputHash: receipt.input.canonical_hash,
-            packDigestSha256: packSha,
-            verdict: receipt.verdict.value,
-            ruleName: receipt.verdict.rule_name,
-            integrity: verified.verification.integrity,
-            transitionCommitment: candidate.transition.transition_commitment,
-            requestIdentity: candidate.request.admitted_request_identity_sha256,
-            attemptId: candidate.request.attempt_id,
-            attemptCommitmentSha256: candidate.request.attempt_commitment_sha256,
-            issuerAuthenticity: verified.verification.issuer_authenticity,
-            replay: verified.verification.replay,
+          console.log(JSON.stringify({
+            status: chain.status,
+            d1ReceiptSha256: chain.d1.receiptSha256,
+            d2ReceiptSha256: chain.d2.receiptSha256,
+            requestIdentity: chain.requestIdentity,
+            attemptId: chain.attemptId,
+            transitionCommitment: chain.transitionCommitment,
+            issuerAuthenticity: 'not_verified',
+            replay: 'not_performed',
+            warrantIssued: false,
+            s0RegisteredFromDecision: false,
+            evmTransactionSubmitted: false,
             publicOrAcpExecutionPerformed: false
-          };
-          fs.writeFileSync(
-            'out/release/contract-summary.json',
-            JSON.stringify(summary, null, 2) + '\n'
-          );
-          console.log(JSON.stringify(summary, null, 2));
+          }, null, 2));
           NODE
 
-      - name: Upload local release contract evidence
+      - name: Upload local release decision-chain evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
