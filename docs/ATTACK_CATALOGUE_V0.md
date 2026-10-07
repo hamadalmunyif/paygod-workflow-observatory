@@ -283,6 +283,30 @@ Use the exact authorized payload bytes but attempt release/acceptance by a provi
 
 Expected: E2/P rejects or the result is nonconformant.
 
+### A38 — signed but unregistered warrant
+
+Present a correctly signed Warrant that has no matching S0 `ISSUED` registration.
+
+Expected: reject.
+
+### A39 — S0 warrant-body mismatch
+
+Present a correctly signed Warrant whose body digest differs from the digest registered under the same issuer/nonce.
+
+Expected: reject.
+
+### A40 — E1 before payload stage
+
+Attempt transaction reservation while S0 is still `ISSUED`.
+
+Expected: reject.
+
+### A41 — payload release before matching transaction evidence
+
+Attempt payload release before `TX_EXECUTED`.
+
+Expected: reject.
+
 ## 11. Pass condition
 
 The catalogue passes only if:
