@@ -39,7 +39,15 @@ Reference runtime:
 
 The implementation workflow must verify this digest before extraction.
 
-The adversarial client must not receive Anvil raw/admin RPC. Its chain access is the fail-closed R-client proxy defined by `LOCAL_EVM_RAIL_V0.md`.
+The adversarial client must not receive Anvil raw/admin RPC. Its chain access is the fail-closed R-client proxy defined by `LOCAL_EVM_RAIL_V0.md` and `LOCAL_EVM_RPC_BOUNDARY_V0.md`.
+
+The exact surrogate contract/compiler profile is frozen in `LOCAL_EVM_SURROGATE_CONTRACT_V0.md`:
+
+- Solidity `0.8.30+commit.73712a01`;
+- solc linux-amd64 SHA-256 `f3e987dc6ecebd4bd350c48edcbc320b46cf9e3109bd3fc3d88f1acaf4c428f7`;
+- no requirement-payload digest in transaction calldata;
+- immutable protected execution account;
+- no admin/upgrade/bypass path.
 
 ## 2. Local transaction model
 
