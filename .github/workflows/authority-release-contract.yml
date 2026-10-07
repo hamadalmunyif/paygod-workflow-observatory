@@ -868,7 +868,43 @@ jobs:
             --state-db out/release/authority-state.db \
             --output-dir out/release/gate-zero-t0
 
-      - name: Derive frozen T0 Gate Zero result
+      - name: Remove protected execution key and stop local rail
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f "$PROTECTED_EXECUTION_KEY_FILE"
+
+          if [ -f out/release/local-evm/r-client-proxy.pid ]; then
+            PROXY_PID="$(cat out/release/local-evm/r-client-proxy.pid)"
+            kill "$PROXY_PID" 2>/dev/null || true
+            for i in $(seq 1 50); do
+              if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+                break
+              fi
+              sleep 0.1
+            done
+            if kill -0 "$PROXY_PID" 2>/dev/null; then
+              echo "R-client proxy did not stop after SIGTERM"
+              exit 1
+            fi
+          fi
+
+          if [ -f out/release/local-evm/anvil.pid ]; then
+            ANVIL_PID="$(cat out/release/local-evm/anvil.pid)"
+            kill "$ANVIL_PID" 2>/dev/null || true
+            for i in $(seq 1 50); do
+              if ! kill -0 "$ANVIL_PID" 2>/dev/null; then
+                break
+              fi
+              sleep 0.1
+            done
+            if kill -0 "$ANVIL_PID" 2>/dev/null; then
+              echo "Anvil did not stop after SIGTERM"
+              exit 1
+            fi
+          fi
+
+      - name: Derive frozen T0 Gate Zero result from final evidence bytes
         run: |
           node scripts/build-gate-zero-t0-result-v0.mjs \
             --client-preflight out/release/gate-zero-client/preflight.json \
@@ -877,18 +913,8 @@ jobs:
             --post-e2 out/release/gate-zero-t0/post-e2.json \
             --post-e1 out/release/gate-zero-t0/post-e1.json \
             --client-image out/release/local-evm/client-container-image.txt \
+            --e1-execution out/release/e1/e1-execution.json \
             --output out/release/gate-zero-t0/result.json
-
-      - name: Remove protected execution key and stop local rail
-        if: always()
-        run: |
-          rm -f "$PROTECTED_EXECUTION_KEY_FILE"
-          if [ -f out/release/local-evm/r-client-proxy.pid ]; then
-            kill "$(cat out/release/local-evm/r-client-proxy.pid)" 2>/dev/null || true
-          fi
-          if [ -f out/release/local-evm/anvil.pid ]; then
-            kill "$(cat out/release/local-evm/anvil.pid)" 2>/dev/null || true
-          fi
 
       - name: Upload local release contract evidence
         if: always()
