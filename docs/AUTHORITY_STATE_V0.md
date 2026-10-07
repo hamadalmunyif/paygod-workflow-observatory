@@ -245,3 +245,25 @@ Both `stagePayload` and `reserveTransaction` require the exact `warrant_body_sha
 This makes a signed-but-unregistered or differently registered Warrant fail at the state boundary even if a caller forgets to perform a separate comparison.
 
 This is defense in depth; E1/E2 still verify the signature and transition surface independently.
+
+
+## 17. Exact E2 staged-byte state
+
+For E2 v0, S0 owns a separate immutable `e2_payload_stage` record keyed by `issuer_key_id + nonce`.
+
+The stage record binds:
+
+- transition commitment;
+- exact Warrant body digest;
+- payload SHA-256;
+- payload channel;
+- payload recipient;
+- payload content type;
+- exact payload bytes;
+- byte length.
+
+The insert and `ISSUED -> PAYLOAD_STAGED` state transition occur in one SQLite transaction.
+
+The legacy digest-only staging path is not used by E2 v0; the exact-byte staging operation is the reference path for later E1 reservation.
+
+A second stage for the same issuer/nonce is rejected rather than treated as idempotent success.
