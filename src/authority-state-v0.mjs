@@ -121,6 +121,20 @@ export class AuthorityStateStoreV0 {
         "PRIMARY KEY (issuer_key_id, nonce)" +
       ") STRICT"
     );
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS authority_state_event (" +
+        "event_index INTEGER PRIMARY KEY AUTOINCREMENT," +
+        "issuer_key_id TEXT NOT NULL," +
+        "nonce TEXT NOT NULL," +
+        "transition_commitment TEXT NOT NULL," +
+        "prior_state TEXT," +
+        "new_state TEXT NOT NULL," +
+        "event_type TEXT NOT NULL," +
+        "event_timestamp INTEGER NOT NULL," +
+        "requested_by TEXT NOT NULL," +
+        "result TEXT NOT NULL" +
+      ") STRICT"
+    );
   }
 
   close() {
@@ -164,6 +178,61 @@ export class AuthorityStateStoreV0 {
     return normalizeRow(this._select(issuerKeyId, nonce));
   }
 
+  _recordEvent({
+    issuerKeyId,
+    nonce,
+    transitionCommitment,
+    priorState,
+    newState,
+    eventType,
+    eventTimestamp,
+    requestedBy,
+  }) {
+    requireString(requestedBy, "S0_REQUESTED_BY_REQUIRED", "requested_by");
+    this.db
+      .prepare(
+        "INSERT INTO authority_state_event (" +
+          "issuer_key_id, nonce, transition_commitment, prior_state, new_state, " +
+          "event_type, event_timestamp, requested_by, result" +
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SUCCESS')"
+      )
+      .run(
+        issuerKeyId,
+        nonce,
+        transitionCommitment,
+        priorState,
+        newState,
+        eventType,
+        eventTimestamp,
+        requestedBy
+      );
+  }
+
+  listEvents({ issuerKeyId, nonce }) {
+    requireIssuerKeyId(issuerKeyId);
+    requireNonce(nonce);
+    return this.db
+      .prepare(
+        "SELECT event_index, issuer_key_id, nonce, transition_commitment, " +
+        "prior_state, new_state, event_type, event_timestamp, requested_by, result " +
+        "FROM authority_state_event WHERE issuer_key_id = ? AND nonce = ? " +
+        "ORDER BY event_index ASC"
+      )
+      .all(issuerKeyId, nonce)
+      .map((row) => ({
+        eventIndex: row.event_index,
+        issuerKeyId: row.issuer_key_id,
+        nonce: row.nonce,
+        transitionCommitment: row.transition_commitment,
+        priorState: row.prior_state,
+        newState: row.new_state,
+        eventType: row.event_type,
+        eventTimestamp: row.event_timestamp,
+        requestedBy: row.requested_by,
+        result: row.result,
+      }));
+  }
+
   registerIssued({
     issuerKeyId,
     nonce,
@@ -172,6 +241,7 @@ export class AuthorityStateStoreV0 {
     notBefore,
     expiresAt,
     warrantBodySha256,
+    requestedBy = "I",
   }) {
     requireIssuerKeyId(issuerKeyId);
     requireNonce(nonce);
@@ -224,6 +294,17 @@ export class AuthorityStateStoreV0 {
           now
         );
 
+      this._recordEvent({
+        issuerKeyId,
+        nonce,
+        transitionCommitment,
+        priorState: null,
+        newState: "ISSUED",
+        eventType: "WARRANT_ISSUED",
+        eventTimestamp: now,
+        requestedBy,
+      });
+
       return normalizeRow(this._select(issuerKeyId, nonce));
     });
   }
@@ -274,6 +355,7 @@ export class AuthorityStateStoreV0 {
     payloadChannel,
     payloadRecipient,
     payloadContentType,
+    requestedBy = "E2",
   }) {
     requireIssuerKeyId(issuerKeyId);
     requireNonce(nonce);
@@ -360,6 +442,17 @@ export class AuthorityStateStoreV0 {
         );
       }
 
+      this._recordEvent({
+        issuerKeyId,
+        nonce,
+        transitionCommitment,
+        priorState: "ISSUED",
+        newState: "PAYLOAD_STAGED",
+        eventType: "PAYLOAD_STAGED",
+        eventTimestamp: now,
+        requestedBy,
+      });
+
       return {
         state: normalizeRow(this._select(issuerKeyId, nonce)),
         stage: this.getStagedPayload({ issuerKeyId, nonce }),
@@ -400,6 +493,7 @@ export class AuthorityStateStoreV0 {
     transitionCommitment,
     enforcementDomain,
     warrantBodySha256,
+    requestedBy = "E1",
   }) {
     requireIssuerKeyId(issuerKeyId);
     requireNonce(nonce);
@@ -432,6 +526,17 @@ export class AuthorityStateStoreV0 {
         )
         .run(now, now, issuerKeyId, nonce);
 
+      this._recordEvent({
+        issuerKeyId,
+        nonce,
+        transitionCommitment,
+        priorState: "PAYLOAD_STAGED",
+        newState: "TX_RESERVED",
+        eventType: "TRANSACTION_RESERVED",
+        eventTimestamp: now,
+        requestedBy,
+      });
+
       return normalizeRow(this._select(issuerKeyId, nonce));
     });
   }
@@ -442,6 +547,7 @@ export class AuthorityStateStoreV0 {
     transitionCommitment,
     enforcementDomain,
     txEvidenceSha256,
+    requestedBy = "E1",
   }) {
     requireSha256(
       txEvidenceSha256,
@@ -468,6 +574,17 @@ export class AuthorityStateStoreV0 {
         )
         .run(txEvidenceSha256, now, issuerKeyId, nonce);
 
+      this._recordEvent({
+        issuerKeyId,
+        nonce,
+        transitionCommitment,
+        priorState: "TX_RESERVED",
+        newState: "TX_EXECUTED",
+        eventType: "TRANSACTION_EXECUTED",
+        eventTimestamp: now,
+        requestedBy,
+      });
+
       return normalizeRow(this._select(issuerKeyId, nonce));
     });
   }
@@ -478,6 +595,7 @@ export class AuthorityStateStoreV0 {
     transitionCommitment,
     enforcementDomain,
     payloadSha256,
+    requestedBy = "E2",
   }) {
     requireSha256(payloadSha256, "S0_PAYLOAD_DIGEST_INVALID", "payload_sha256");
     const now = requireTime(this.now(), "S0_NOW_INVALID", "harness time");
@@ -505,6 +623,17 @@ export class AuthorityStateStoreV0 {
         )
         .run(now, issuerKeyId, nonce);
 
+      this._recordEvent({
+        issuerKeyId,
+        nonce,
+        transitionCommitment,
+        priorState: "TX_EXECUTED",
+        newState: "PAYLOAD_RELEASED",
+        eventType: "PAYLOAD_RELEASED",
+        eventTimestamp: now,
+        requestedBy,
+      });
+
       return normalizeRow(this._select(issuerKeyId, nonce));
     });
   }
@@ -514,6 +643,7 @@ export class AuthorityStateStoreV0 {
     nonce,
     transitionCommitment,
     enforcementDomain,
+    requestedBy = "V",
   }) {
     const now = requireTime(this.now(), "S0_NOW_INVALID", "harness time");
 
@@ -533,6 +663,17 @@ export class AuthorityStateStoreV0 {
           "WHERE issuer_key_id = ? AND nonce = ? AND state = 'PAYLOAD_RELEASED'"
         )
         .run(now, issuerKeyId, nonce);
+
+      this._recordEvent({
+        issuerKeyId,
+        nonce,
+        transitionCommitment,
+        priorState: "PAYLOAD_RELEASED",
+        newState: "CONFORMANT",
+        eventType: "CONFORMANCE_VERIFIED",
+        eventTimestamp: now,
+        requestedBy,
+      });
 
       return normalizeRow(this._select(issuerKeyId, nonce));
     });
