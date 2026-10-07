@@ -1,6 +1,8 @@
 # AP2 Collision Test — Pass B Handoff v0
 
-Status: **READY FOR INDEPENDENT REVIEW**
+Status: **READY FOR BLIND SECOND-PASS REVIEW**
+
+Amendment note: this handoff was neutralized after methodology review. The underlying frozen rubric was not changed.
 
 Purpose: obtain an independent AP2 Collision Test score without contaminating the second reviewer with Pass A conclusions.
 
@@ -20,6 +22,8 @@ Do **not** read:
 until after all six technical axes have been independently scored and written down.
 
 The purpose is to preserve a genuine second pass rather than a critique of Pass A.
+
+The second reviewer must not receive any verbal summary of Pass A before freezing the six technical scores.
 
 ## 2. Frozen AP2 source set
 
@@ -100,44 +104,42 @@ If no first-party behavioral/commercial evidence is available, use:
 
 rather than guessing who would pay.
 
-## 5. Mandatory adversarial questions
+## 5. Neutral adversarial review rule
 
-The reviewer should try to falsify these propositions:
+Pass B must not be directed toward any preselected axis.
 
-### P1 — Warrant duplication
+For **each of Axes 1–6**, the reviewer must make both cases before choosing a score:
 
-Does AP2 already provide the same essential authority primitive as PayGod Warrant v0?
+1. strongest source-grounded case that AP2 **covers** the frozen minimum;
+2. strongest source-grounded case that AP2 **does not fully cover** the frozen minimum.
 
-The reviewer should try to prove **yes** before looking for differences.
+The reviewer may downgrade or upgrade **any** axis with equal standing.
 
-### P2 — Replay distinction
+No axis is designated as the expected source of disagreement.
 
-Does AP2 have normative verifier-side semantics that make accepted authority single-use or otherwise safely reusable, rather than relying on an Agent to behave?
+The reviewer must not be told:
 
-If yes, identify the exact rule/state transition.
+- Pass A's scores;
+- Pass A's covered-count;
+- which axes Pass A considered pivotal;
+- what score change would trigger the Kill Rule in the existing Pass A vector.
 
-### P3 — Post-flight distinction
+The frozen rubric itself remains visible, including its derived-result rules.
 
-Do AP2 Receipts let an independent verifier establish that the external payment/checkout outcome actually occurred and matched authorization, rather than only verify that a signed role claims success?
+### Normative semantics versus implementation mechanism
 
-If yes, identify the exact normative verification path for the external outcome.
+Coverage is judged at the specification/protocol level.
 
-### P4 — Multi-surface prior art
+Do not mark an axis `PARTIAL` merely because AP2 leaves an implementation mechanism local.
 
-Does AP2 already demonstrate authority enforced by multiple distinct roles/surfaces bound to the same commerce/payment transition?
+For example, a specification can fully define a required replay outcome while allowing each Verifier to choose its own database, cache, ledger, or atomic-storage implementation.
 
-If yes, do not credit PayGod merely for having E1/E2.
+The relevant distinction is:
 
-### P5 — Adapter laundering
+- **normative semantic exists** — the protocol says what must be accepted/rejected/bounded; implementation mechanics may remain local;
+- **normative semantic absent or optional** — the protocol does not require the relevant safety property, even if an implementation could add it locally.
 
-Could a PayGod adapter appear to make AP2 compatible only by inventing:
-
-- consume-once state;
-- new cross-surface binding;
-- new post-flight evidence;
-- a new authority decision?
-
-If yes, classify mapping according to the frozen adapter-laundering rule.
+Likewise, an implementation bug does not lower a normative protocol score when the specification clearly requires the missing behavior; record that separately as `IMPLEMENTATION_CONFORMANCE_GAP`.
 
 ## 6. Freeze-before-issues checkpoint
 
@@ -182,12 +184,30 @@ If an issue reveals that the pinned implementation violates the spec, preserve t
 
 unless the primary normative text itself is ambiguous/missing.
 
-## 8. Independent result format
+## 8. Reviewer-independence declaration
+
+Before returning scores, record exactly one reviewer class:
+
+- `EXTERNAL_HUMAN_DOMAIN_REVIEWER` — human outside the PayGod build/research loop with relevant protocol/payments/authorization expertise;
+- `INTERNAL_HUMAN_REVIEWER` — human already participating in PayGod decisions;
+- `AI_SECOND_PASS` — another model/session performing a blind source review;
+- `MIXED_OR_ASSISTED` — human review materially assisted by a model or by PayGod participants.
+
+Only `EXTERNAL_HUMAN_DOMAIN_REVIEWER` counts as external independent validation.
+
+The other classes remain useful second-pass evidence but must not be described as independent external verification.
+
+The review result must state whether the reviewer had any prior exposure to Pass A conclusions.
+
+## 9. Independent result format
 
 Return:
 
 ```text
 PASS_B
+
+reviewer_class:
+prior_exposure_to_pass_a: YES | NO
 
 source_commit:
 spec_version:
@@ -230,7 +250,7 @@ confidence:
 ...
 ```
 
-## 9. Reconciliation rule
+## 10. Reconciliation rule
 
 After Pass B is complete, compare it to Pass A.
 
@@ -244,7 +264,7 @@ For each disagreement:
 
 Do not change the rubric to make the disagreement disappear.
 
-## 10. Stop conditions
+## 11. Stop conditions
 
 Stop and mark the relevant result `UNKNOWN` if:
 
@@ -255,7 +275,7 @@ Stop and mark the relevant result `UNKNOWN` if:
 
 Do not extend the research indefinitely to avoid an unfavorable result.
 
-## 11. Final boundary
+## 12. Final boundary
 
 Pass B is not a product review and not a recommendation to adopt PayGod.
 
