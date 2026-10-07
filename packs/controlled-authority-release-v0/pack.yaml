@@ -2,10 +2,10 @@ api_version: "paygod/v1"
 kind: Pack
 metadata:
   name: "controlled-authority-release-v0"
-  version: "0.1.0"
-  description: "Local-only controlled harness release decision. It does not authorize ACP or public-chain execution."
+  version: "0.2.0"
+  description: "Local-only controlled harness D2 release decision bound to an exact D1 admission receipt. It does not authorize ACP or public-chain execution."
   maintainer: "internal"
-  tags: ["controlled-harness", "release", "local-only"]
+  tags: ["controlled-harness", "release", "local-only", "decision-chain"]
 
 spec:
   policy:
@@ -19,6 +19,16 @@ spec:
         condition: "input.profile != 'controlled-harness/release-candidate/v0'"
         decision: "deny"
         reason: "Release candidate profile is not v0."
+
+      - name: "deny-admission-link-missing"
+        condition: "not input.admission.receipt_sha256 or not input.admission.input_canonical_hash or not input.admission.pack_digest_sha256"
+        decision: "deny"
+        reason: "D2 requires an exact D1 receipt commitment and canonical-input binding."
+
+      - name: "deny-admission-contract-mismatch"
+        condition: "input.admission.pack_name != 'acp-request-admission-shadow' or input.admission.pack_version != '0.2.0' or input.admission.verdict != 'allow' or input.admission.rule != 'shadow-admitted'"
+        decision: "deny"
+        reason: "D2 requires the frozen D1 shadow-admission result. D1 remains non-executable by itself."
 
       - name: "deny-request-not-admitted"
         condition: "input.request.status != 'CANDIDATE_LOCAL_VALIDATED' or input.request.schema_validation != 'LOCAL_VALIDATED' or not input.request.admitted_request_identity_sha256"
@@ -61,6 +71,6 @@ spec:
         reason: "Transition commitment or one of the declared enforcement-surface bindings is missing."
 
       - name: "controlled-local-release"
-        condition: "input.request.status == 'CANDIDATE_LOCAL_VALIDATED' and input.request.schema_validation == 'LOCAL_VALIDATED' and input.request.attempt_id and input.request.attempt_commitment_sha256 and input.request.admitted_request_identity_sha256 == input.transition.request_identity_sha256 and input.request.request_payload_sha256 == input.transition.payload.payload_sha256 and input.transition.system == 'evm' and input.transition.chain_id == 31337 and input.authority.enforcement_domain == 'controlled-harness/t0-v0' and input.authority.local_only == true and input.authority.external_execution_authorized == false"
+        condition: "input.admission.receipt_sha256 and input.admission.input_canonical_hash and input.admission.pack_digest_sha256 and input.admission.pack_name == 'acp-request-admission-shadow' and input.admission.pack_version == '0.2.0' and input.admission.verdict == 'allow' and input.admission.rule == 'shadow-admitted' and input.request.status == 'CANDIDATE_LOCAL_VALIDATED' and input.request.schema_validation == 'LOCAL_VALIDATED' and input.request.attempt_id and input.request.attempt_commitment_sha256 and input.request.admitted_request_identity_sha256 == input.transition.request_identity_sha256 and input.request.request_payload_sha256 == input.transition.payload.payload_sha256 and input.transition.system == 'evm' and input.transition.chain_id == 31337 and input.authority.enforcement_domain == 'controlled-harness/t0-v0' and input.authority.local_only == true and input.authority.external_execution_authorized == false"
         decision: "allow"
-        reason: "Controlled local transition is eligible for Warrant v0 issuance within T0 only."
+        reason: "D2 local transition is eligible for decision-chain verification within T0. Warrant issuance still requires verified D1+D2 linkage."
