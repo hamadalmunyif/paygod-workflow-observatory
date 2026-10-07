@@ -28,6 +28,23 @@ jobs:
       - name: Run observatory tests
         run: npm test
 
+      - name: Preserve supporting T0 authority tests
+        run: |
+          set -euo pipefail
+          mkdir -p out/release/gate-zero-client
+          node --test \
+            test/authority-core-v0.test.mjs \
+            test/e1-transaction-gate-v0.test.mjs \
+            test/e2-payload-gate-v0.test.mjs \
+            test/warrant-issuer-trust-v0.test.mjs \
+            | tee out/release/gate-zero-client/supporting-tests.tap
+
+          grep -F "second reservation is rejected after TX_RESERVED consumption" out/release/gate-zero-client/supporting-tests.tap
+          grep -F "A43 staged payload cannot be replaced or staged twice" out/release/gate-zero-client/supporting-tests.tap
+          grep -F "A55 caller operational metadata is rejected" out/release/gate-zero-client/supporting-tests.tap
+          grep -F "A5 untrusted Warrant issuer is rejected" out/release/gate-zero-client/supporting-tests.tap
+          grep -F "external trust store rejects key id that does not match SPKI bytes" out/release/gate-zero-client/supporting-tests.tap
+
       - name: Build fixture Observation Pack
         run: |
           node bin/workflow-observatory.mjs discover             --input test/fixtures/browse.json             --query risk             --output-dir out/release/observation-pack
@@ -799,6 +816,39 @@ jobs:
           console.log(JSON.stringify(stage, null, 2));
           NODE
 
+      - name: Probe actual C reachability to host key S0 and trust stores
+        env:
+          CLIENT_IMAGE: "node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8"
+        run: |
+          set -euo pipefail
+          docker pull "$CLIENT_IMAGE" >/dev/null
+
+          docker run --rm \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/t0-client-boundary-probe-v0.mjs,dst=/work/t0-client-boundary-probe-v0.mjs,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/out/release/gate-zero-client,dst=/work/out" \
+            -e PROTECTED_KEY_HOST_PATH="$PROTECTED_EXECUTION_KEY_FILE" \
+            -e S0_HOST_PATH="$GITHUB_WORKSPACE/out/release/authority-state.db" \
+            -e DECISION_TRUST_HOST_PATH="$GITHUB_WORKSPACE/out/release/decision-trust-store.json" \
+            -e WARRANT_TRUST_HOST_PATH="$GITHUB_WORKSPACE/out/release/warrant-issuer-trust.json" \
+            -e BOUNDARY_PROBE_OUTPUT="/work/out/client-boundary.json" \
+            "$CLIENT_IMAGE" \
+            node /work/t0-client-boundary-probe-v0.mjs
+
+          jq -e '
+            .result == "NO_CLIENT_SECRET_OR_S0_REACHABILITY_OBSERVED" and
+            .protected_key_host_path_readable == false and
+            .protected_key_host_path_writable == false and
+            .s0_host_path_readable == false and
+            .s0_host_path_writable == false and
+            .decision_trust_store_readable == false and
+            .decision_trust_store_writable == false and
+            .warrant_trust_store_readable == false and
+            .warrant_trust_store_writable == false and
+            .docker_socket_readable == false and
+            .docker_socket_writable == false and
+            (.suspicious_secret_env_names | length) == 0
+          ' out/release/gate-zero-client/client-boundary.json >/dev/null
+
       - name: Execute exact local EVM transaction through E1
         run: |
           node scripts/execute-controlled-e1-local-v0.mjs \
@@ -867,21 +917,41 @@ jobs:
 
       - name: Record bounded T0 E1 Gate Zero witness
         run: |
+          set -euo pipefail
           node --input-type=module - <<'NODE'
+          import crypto from 'node:crypto';
           import fs from 'node:fs';
 
-          const preflight = JSON.parse(
-            fs.readFileSync('out/release/gate-zero-client/preflight.json', 'utf8')
-          );
-          const s0 = JSON.parse(
-            fs.readFileSync('out/release/gate-zero-client/s0-replay-concurrency.json', 'utf8')
-          );
-          const a9 = JSON.parse(
-            fs.readFileSync('out/release/gate-zero-client/a9-payload-substitution.json', 'utf8')
-          );
-          const e1 = JSON.parse(
-            fs.readFileSync('out/release/e1/e1-execution.json', 'utf8')
-          );
+          const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
+          const sha256File = (p) =>
+            crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+
+          const preflightPath = 'out/release/gate-zero-client/preflight.json';
+          const boundaryPath = 'out/release/gate-zero-client/client-boundary.json';
+          const s0Path = 'out/release/gate-zero-client/s0-replay-concurrency.json';
+          const a9Path = 'out/release/gate-zero-client/a9-payload-substitution.json';
+          const e1Path = 'out/release/e1/e1-execution.json';
+          const tapPath = 'out/release/gate-zero-client/supporting-tests.tap';
+
+          const preflight = readJson(preflightPath);
+          const boundary = readJson(boundaryPath);
+          const s0 = readJson(s0Path);
+          const a9 = readJson(a9Path);
+          const e1 = readJson(e1Path);
+          const tap = fs.readFileSync(tapPath, 'utf8');
+
+          const supportingNames = [
+            'second reservation is rejected after TX_RESERVED consumption',
+            'A43 staged payload cannot be replaced or staged twice',
+            'A55 caller operational metadata is rejected',
+            'A5 untrusted Warrant issuer is rejected',
+            'external trust store rejects key id that does not match SPKI bytes',
+          ];
+          for (const name of supportingNames) {
+            if (!tap.includes(name)) {
+              throw new Error('Missing supporting T0 test evidence: ' + name);
+            }
+          }
 
           const required = [
             preflight.a51_privileged_rpc_rejected === true,
@@ -889,15 +959,27 @@ jobs:
             preflight.a53_node_managed_protected_signing_rejected === true,
             preflight.a54_alternate_sender_differs_from_protected === true,
             preflight.a54_protected_consequence_observed === false,
-            preflight.key_reachability?.protected_private_key_observed === false,
-            preflight.key_reachability?.protected_private_key_file_mounted === false,
-            preflight.key_reachability?.generic_protected_signing_available === false,
-            preflight.s0_reachability?.authority_state_db_mounted === false,
-            preflight.s0_reachability?.client_s0_admin_api_exposed === false,
-            preflight.s0_reachability?.client_s0_reset_path_observed === false,
+            preflight.raw_transaction_submission_available === true,
+            boundary.result === 'NO_CLIENT_SECRET_OR_S0_REACHABILITY_OBSERVED',
+            boundary.protected_key_host_path_readable === false,
+            boundary.protected_key_host_path_writable === false,
+            boundary.s0_host_path_readable === false,
+            boundary.s0_host_path_writable === false,
+            boundary.decision_trust_store_readable === false,
+            boundary.decision_trust_store_writable === false,
+            boundary.warrant_trust_store_readable === false,
+            boundary.warrant_trust_store_writable === false,
+            boundary.docker_socket_readable === false,
+            boundary.docker_socket_writable === false,
+            Array.isArray(boundary.suspicious_secret_env_names) &&
+              boundary.suspicious_secret_env_names.length === 0,
             s0.a14_concurrent_double_use?.result === 'REJECTED_AS_EXPECTED',
+            s0.a14_concurrent_double_use?.successful_reservations === 1,
+            s0.a14_concurrent_double_use?.rejected_reservations === 1,
             s0.a15_restart_replay?.result === 'REJECTED_AS_EXPECTED',
             a9.result === 'REJECTED_AS_EXPECTED',
+            a9.observed_code === 'E2_PAYLOAD_DIGEST_MISMATCH',
+            a9.s0_state_after === 'ISSUED',
             e1.status === 'TX_EXECUTED',
             e1.signatureReturnedToCaller === false,
           ];
@@ -905,34 +987,149 @@ jobs:
             throw new Error('T0 E1 witness prerequisites are incomplete');
           }
 
+          const attack = (expected, observed, evidenceClass, evidencePath) => ({
+            expected,
+            observed,
+            evidence_class: evidenceClass,
+            evidence_path: evidencePath,
+            evidence_sha256: sha256File(evidencePath),
+          });
+
           const result = {
             schema: 'workflow-observatory/gate-zero-t0-e1-witness/v0',
             result: 'NO_BYPASS_OBSERVED_UNDER_T0_E1_SURFACE',
+            claim:
+              'No bypass was observed under Threat Model T0 across the declared E1 transaction enforcement surface of the controlled local harness.',
             claim_status: 'BOUNDED_E1_ONLY_E2_RELEASE_NOT_YET_TESTED',
             enforcement_surface: 'E1_TRANSACTION',
             threat_model: 'T0',
-            attacks: {
-              A51: 'REJECTED_AS_EXPECTED',
-              A52: 'REJECTED_AS_EXPECTED',
-              A53_A1: 'REJECTED_AS_EXPECTED',
-              A54_A2_A17: 'REJECTED_AS_EXPECTED',
-              A9: 'REJECTED_AS_EXPECTED',
-              A14: 'REJECTED_AS_EXPECTED',
-              A15: 'REJECTED_AS_EXPECTED',
-              KEY_REACHABILITY: 'REJECTED_AS_EXPECTED',
-              S0_REACHABILITY_A16: 'REJECTED_AS_EXPECTED',
-              A55: 'UNIT_OR_INTEGRATION_PASS',
+            harness_commit: process.env.GITHUB_SHA ?? null,
+            workflow_run_id: process.env.GITHUB_RUN_ID ?? null,
+            frozen_attempt_set: 'docs/GATE_ZERO_T0_ATTEMPT_SET_V0.md',
+            frozen_attack_manifest: 'docs/GATE_ZERO_T0_ATTACK_MANIFEST_V0.md',
+            tools: {
+              client_image: fs
+                .readFileSync(
+                  'out/release/local-evm/client-container-image.txt',
+                  'utf8'
+                )
+                .trim(),
+              foundry_archive_sha256:
+                '6c66ffcc55fa4249197721baa3098bc208014ea1d8aa04b2ed50ac6bccffb226',
+              solc_sha256:
+                'f3e987dc6ecebd4bd350c48edcbc320b46cf9e3109bd3fc3d88f1acaf4c428f7',
+              chain_id: 31337,
             },
-            t1_host_rollback_tested: false,
-            t1_status: 'DEFERRED_PENDING_AP2_PASS_B',
-            positive_path_status: e1.status,
-            protected_execution_account: e1.protectedExecutionAccount,
-            protected_transaction_hash: e1.transactionHash,
-            tx_evidence_sha256: e1.txEvidenceSha256,
-            e2_release_tested: false,
-            provider_observation_tested: false,
-            two_surface_conformance_tested: false,
-            conditional_release_authority_claimed: false,
+            attacks: {
+              A51: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'C_BOUNDARY_RUNTIME_PASS',
+                preflightPath
+              ),
+              A52: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'C_BOUNDARY_RUNTIME_PASS',
+                preflightPath
+              ),
+              A53_A1: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'C_BOUNDARY_RUNTIME_PASS',
+                preflightPath
+              ),
+              A54_A2_A17: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'C_BOUNDARY_RUNTIME_PASS',
+                preflightPath
+              ),
+              KEY_REACHABILITY: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'C_BOUNDARY_RUNTIME_PASS',
+                boundaryPath
+              ),
+              S0_REACHABILITY_A16: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'C_BOUNDARY_RUNTIME_PASS',
+                boundaryPath
+              ),
+              A9: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'WORKFLOW_RUNTIME_PASS',
+                a9Path
+              ),
+              A13: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'UNIT_OR_INTEGRATION_PASS',
+                tapPath
+              ),
+              A14: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'WORKFLOW_RUNTIME_PASS',
+                s0Path
+              ),
+              A15: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'WORKFLOW_RUNTIME_PASS',
+                s0Path
+              ),
+              A43: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'UNIT_OR_INTEGRATION_PASS',
+                tapPath
+              ),
+              A55: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'UNIT_OR_INTEGRATION_PASS',
+                tapPath
+              ),
+              A56_A22: {
+                ...attack(
+                  'REJECTED_AS_EXPECTED',
+                  'REJECTED_AS_EXPECTED',
+                  'C_BOUNDARY_RUNTIME_PASS+UNIT_OR_INTEGRATION_PASS',
+                  boundaryPath
+                ),
+                supporting_test_sha256: sha256File(tapPath),
+              },
+              CONFIG_ENFORCER_REPLACEMENT_A21: attack(
+                'REJECTED_AS_EXPECTED',
+                'REJECTED_AS_EXPECTED',
+                'C_BOUNDARY_RUNTIME_PASS',
+                boundaryPath
+              ),
+            },
+            positive_path: {
+              status: e1.status,
+              protected_execution_account: e1.protectedExecutionAccount,
+              protected_transaction_hash: e1.transactionHash,
+              tx_evidence_sha256: e1.txEvidenceSha256,
+              evidence_path: e1Path,
+              evidence_sha256: sha256File(e1Path),
+            },
+            boundaries: {
+              t1_host_rollback_tested: false,
+              t1_status: 'DEFERRED_PENDING_AP2_PASS_B',
+              e2_release_tested: false,
+              provider_observation_tested: false,
+              two_surface_conformance_tested: false,
+              trusted_external_time: false,
+              decision_replay_performed: false,
+              economic_fee_authority: false,
+              independent_production_enforcement_boundary: false,
+              conditional_release_authority_claimed: false,
+              ap2_pass_b_complete: false,
+            },
           };
 
           fs.writeFileSync(
