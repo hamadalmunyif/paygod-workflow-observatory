@@ -12,7 +12,10 @@
   },
   "enforcementDomain": "controlled-harness/t0-v0",
   "chainId": 31337,
-  "paygodReceiptIssuerAuthenticityRequired": false,
+  "paygodReceiptIssuerAuthenticityRequired": true,
   "paygodDecisionReplayPerformed": false,
-  "externalExecutionAuthorized": false
+  "externalExecutionAuthorized": false,
+  "paygodReceiptSignatureProfile": "paygod-ed25519-receipt-v1",
+  "paygodReceiptTrustProfile": "paygod-ed25519-trust-v1",
+  "paygodDecisionIssuerKeyScope": "ephemeral-controlled-harness-epoch"
 }

@@ -17,7 +17,22 @@ The enforcers do not rerun PayGod policy.
 
 The issuer must not issue authority independently of the canonical decision path.
 
-## 2. Issuance preconditions
+## 2. D -> I decision-authenticity precondition
+
+Before any Warrant issuance is permitted, the issuer must reject a decision artifact unless the controlled D→I bridge establishes:
+
+- exact Release Candidate derivation;
+- pinned PayGod kernel/profile/pack identity;
+- canonical candidate input-hash match;
+- allowed verdict/rule;
+- bundle integrity = `verified`;
+- receipt issuer authenticity = `verified` against the external controlled D trust store.
+
+Decision replay may remain `not_performed` in v0, but that limitation must be preserved in evidence and must not be relabeled as replay verification.
+
+The D receipt-signing key is distinct from the Warrant issuer key.
+
+## 3. Issuance preconditions
 
 The issuer may sign a Warrant v0 only if all of the following are true:
 
@@ -32,7 +47,7 @@ The issuer may sign a Warrant v0 only if all of the following are true:
 
 A failure in any precondition is fail-closed.
 
-## 3. The issuer is not a generic signing service
+## 4. The issuer is not a generic signing service
 
 The issuer API must not expose:
 
@@ -44,7 +59,7 @@ The issuer API must not expose:
 
 If any such path exists within T0, it is an authority bypass.
 
-## 4. Decision evidence stays outside Warrant v0
+## 5. Decision evidence stays outside Warrant v0
 
 The issuer may maintain an audit record that binds:
 
@@ -65,7 +80,7 @@ rather than:
 
 `enforcer reruns PayGod evidence/policy`
 
-## 5. Issuer key for controlled v0
+## 6. Issuer key for controlled v0
 
 The controlled harness uses one dedicated test issuer key.
 
@@ -81,7 +96,7 @@ The controlled v0 profile fixes the issuer algorithm to `Ed25519`.
 
 The exact representation and signing profile are defined in `CONTROLLED_HARNESS_IMPLEMENTATION_PROFILE_V0.md`.
 
-## 6. issuer_key_id
+## 7. issuer_key_id
 
 For v0, `issuer_key_id` is derived from the exact Ed25519 DER SubjectPublicKeyInfo bytes as:
 
@@ -91,7 +106,7 @@ The full byte/encoding profile is frozen in `CONTROLLED_HARNESS_IMPLEMENTATION_P
 
 No human-readable alias alone may establish issuer identity.
 
-## 7. S0 issuance registration
+## 8. S0 issuance registration
 
 A Warrant is not considered issued until the signed body is successfully registered in S0.
 
@@ -111,7 +126,7 @@ I returns the Warrant artifacts to C only after that registration succeeds.
 
 This prevents two independently returned warrants from silently sharing the same nonce identity.
 
-## 8. Trusted issuer configuration
+## 9. Trusted issuer configuration
 
 E1 and E2 use a pinned, read-only trusted-issuer configuration.
 
@@ -124,7 +139,7 @@ The client must not have a supported runtime path to:
 
 Attempting to modify the trusted set is part of the frozen attack catalogue.
 
-## 9. Key compromise boundary
+## 10. Key compromise boundary
 
 If the trusted issuer private key is compromised, the v0 issuer epoch is considered totally compromised.
 
@@ -141,7 +156,7 @@ Production topics such as:
 
 remain future work.
 
-## 10. Issuance attacks
+## 11. Issuance attacks
 
 The controlled harness must add the following tests before implementation:
 
@@ -181,7 +196,7 @@ Attempt to make the issuer sign arbitrary bytes or a caller-supplied commitment 
 
 Expected: reject.
 
-## 11. Claim boundary
+## 12. Claim boundary
 
 Passing issuance tests proves only that the controlled issuer did not behave as an open mint under T0.
 

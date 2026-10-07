@@ -307,7 +307,53 @@ Attempt payload release before `TX_EXECUTED`.
 
 Expected: reject.
 
-## 11. Pass condition
+## 11. Decision-authenticity bridge attacks
+
+These attacks are frozen before Warrant issuance implementation.
+
+### A44 — unsigned PayGod decision receipt
+
+Present a bundle with valid internal integrity but no `receipt.sig.json`.
+
+Expected: D→I admission rejects.
+
+### A45 — untrusted decision signer
+
+Present a mathematically valid receipt signature from a key absent from the externally configured D trust store.
+
+Expected: reject.
+
+### A46 — receipt mutated after D signature
+
+Change `receipt.json` after signing.
+
+Expected: issuer-authentication fails and D→I admission rejects.
+
+### A47 — candidate / receipt input mismatch
+
+Present an authenticated PayGod receipt whose canonical input hash does not match the exact Release Candidate being proposed for issuance.
+
+Expected: reject.
+
+### A48 — authenticated decision from wrong pack contract
+
+Present an authenticated receipt whose pack name, version, digest, verdict, or rule differs from the frozen controlled-release profile.
+
+Expected: reject.
+
+### A49 — client trust-store substitution
+
+Attempt any T0 path by which C replaces or extends the D public-key trust configuration used for D→I admission.
+
+Expected: reject. If C can install its own trusted D key, record `BYPASS_OBSERVED`.
+
+### A50 — D signing oracle bypass
+
+Attempt to invoke the D receipt-signing capability on a caller-supplied arbitrary receipt without traversing the protected canonical-decision path.
+
+Expected: reject or be unreachable under the frozen boundary. If accessible to C, the D→I trust bridge fails.
+
+## 12. Pass condition
 
 The catalogue passes only if:
 
@@ -318,3 +364,5 @@ The catalogue passes only if:
 5. E1 and E2 are both covered.
 
 Passing this catalogue supports only the bounded T0 claim defined in `THREAT_MODEL_T0.md`.
+
+Decision-authenticity attacks A44-A50 must pass before any local Warrant issuance witness may be promoted beyond design-only status.

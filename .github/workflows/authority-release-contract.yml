@@ -20,6 +20,11 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Run observatory tests
         run: npm test
 
@@ -63,6 +68,9 @@ jobs:
           ref: 23ea2cca74ef8b698718c6d0c8dbda447f13bb37
           path: external/paygod-kernel
 
+      - name: Install established receipt-auth backend
+        run: python -m pip install -r external/paygod-kernel/tools/requirements-issuer-auth.txt
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -89,9 +97,74 @@ jobs:
           mkdir -p out/release/paygod
           dotnet out/paygod-cli/PayGod.Cli.dll run             --pack packs/controlled-authority-release-v0             --input out/release/release-candidate.json             --out out/release/paygod
 
-      - name: Verify canonical PayGod evidence bundle
+      - name: Create isolated controlled decision trust anchor
+        env:
+          DECISION_PRIVATE_KEY: ${{ runner.temp }}/paygod-controlled-decision-private.pem
         run: |
-          python3 external/paygod-kernel/tools/verify_portable_evidence.py             out/release/paygod             --result out/release/paygod-verification.json
+          python - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, 'external/paygod-kernel/tools')
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          from issuer_auth import TRUST_PROFILE, ALGORITHM
+
+          private_key = Ed25519PrivateKey.generate()
+          public_key = private_key.public_key()
+          private_path = Path(os.environ['DECISION_PRIVATE_KEY'])
+          private_path.write_bytes(
+              private_key.private_bytes(
+                  serialization.Encoding.PEM,
+                  serialization.PrivateFormat.PKCS8,
+                  serialization.NoEncryption(),
+              )
+          )
+
+          raw_public = public_key.public_bytes(
+              serialization.Encoding.Raw,
+              serialization.PublicFormat.Raw,
+          )
+          key_id = 'controlled-decision-ed25519:' + hashlib.sha256(raw_public).hexdigest()
+          trust = {
+              'profile': TRUST_PROFILE,
+              'keys': [{
+                  'key_id': key_id,
+                  'algorithm': ALGORITHM,
+                  'public_key_b64': base64.b64encode(raw_public).decode('ascii'),
+              }],
+          }
+          Path('out/release/decision-trust-store.json').write_text(
+              json.dumps(trust, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          Path('out/release/decision-issuer-key-id.txt').write_text(
+              key_id + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Sign canonical PayGod receipt commitment
+        env:
+          DECISION_PRIVATE_KEY: ${{ runner.temp }}/paygod-controlled-decision-private.pem
+        run: |
+          KEY_ID="$(cat out/release/decision-issuer-key-id.txt)"
+          python external/paygod-kernel/tools/sign_receipt_commitment.py \
+            out/release/paygod \
+            --key-id "$KEY_ID" \
+            --private-key "$DECISION_PRIVATE_KEY"
+
+      - name: Verify canonical PayGod evidence bundle and issuer authenticity
+        run: |
+          python3 external/paygod-kernel/tools/verify_portable_evidence.py \
+            out/release/paygod \
+            --trusted-issuer-keys out/release/decision-trust-store.json \
+            --require-issuer-authenticity \
+            --result out/release/paygod-verification.json
 
       - name: Assert canonical release contract
         run: |
@@ -123,8 +196,17 @@ jobs:
           if (profile.pack.allowedVerdict !== 'allow' || profile.pack.allowedRule !== 'controlled-local-release') {
             throw new Error('Controlled release profile verdict contract drifted');
           }
-          if (profile.paygodReceiptIssuerAuthenticityRequired !== false) {
-            throw new Error('Profile unexpectedly claims PayGod receipt issuer authenticity');
+          if (profile.paygodReceiptIssuerAuthenticityRequired !== true) {
+            throw new Error('Controlled release profile must require PayGod receipt issuer authenticity');
+          }
+          if (profile.paygodReceiptSignatureProfile !== 'paygod-ed25519-receipt-v1') {
+            throw new Error('Unexpected PayGod receipt signature profile');
+          }
+          if (profile.paygodReceiptTrustProfile !== 'paygod-ed25519-trust-v1') {
+            throw new Error('Unexpected PayGod receipt trust profile');
+          }
+          if (profile.paygodDecisionIssuerKeyScope !== 'ephemeral-controlled-harness-epoch') {
+            throw new Error('Unexpected controlled decision issuer key scope');
           }
           if (profile.paygodDecisionReplayPerformed !== false) {
             throw new Error('Profile unexpectedly claims PayGod decision replay');
@@ -133,8 +215,17 @@ jobs:
           if (verified.status !== 'valid' || verified.verification?.integrity !== 'verified') {
             throw new Error('Standalone PayGod verifier did not verify integrity');
           }
-          if (verified.verification?.issuer_authenticity !== 'not_verified') {
-            throw new Error('Unexpected PayGod receipt issuer-authenticity state');
+          if (verified.verification?.issuer_authenticity !== 'verified') {
+            throw new Error('PayGod receipt issuer authenticity was not verified');
+          }
+          if (verified.issuer_signature?.key_trusted !== true || verified.issuer_signature?.signature_valid !== true) {
+            throw new Error('PayGod receipt signature did not verify against the controlled trust anchor');
+          }
+          if (verified.issuer_signature?.profile !== profile.paygodReceiptSignatureProfile) {
+            throw new Error('Verified receipt signature profile differs from frozen profile');
+          }
+          if (verified.issuer_signature?.algorithm !== 'Ed25519') {
+            throw new Error('Verified receipt signature algorithm is not Ed25519');
           }
           if (verified.verification?.replay !== 'not_performed') {
             throw new Error('Unexpected PayGod decision replay state');
@@ -197,6 +288,9 @@ jobs:
             attemptId: candidate.request.attempt_id,
             attemptCommitmentSha256: candidate.request.attempt_commitment_sha256,
             issuerAuthenticity: verified.verification.issuer_authenticity,
+            decisionIssuerKeyId: verified.issuer_signature.key_id,
+            decisionIssuerSignatureValid: verified.issuer_signature.signature_valid,
+            decisionIssuerKeyTrusted: verified.issuer_signature.key_trusted,
             replay: verified.verification.replay,
             publicOrAcpExecutionPerformed: false
           };
@@ -206,6 +300,10 @@ jobs:
           );
           console.log(JSON.stringify(summary, null, 2));
           NODE
+
+      - name: Remove controlled decision private key
+        if: always()
+        run: rm -f "${{ runner.temp }}/paygod-controlled-decision-private.pem"
 
       - name: Upload local release contract evidence
         if: always()
