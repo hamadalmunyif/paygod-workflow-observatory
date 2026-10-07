@@ -261,7 +261,7 @@ test(
             issuerPublicKey: publicKey,
             authorityStateStore: store,
           }),
-        "RELEASE_CANDIDATE_DERIVATION_MISMATCH"
+        "RELEASE_REQUEST_TRANSITION_IDENTITY_MISMATCH"
       );
     });
   }
