@@ -1,6 +1,6 @@
 # Gate Zero — E1 RPC Boundary Preflight v0
 
-Status: **PREFLIGHT ONLY — CLIENT CONTAINER DIGEST NOT YET FROZEN**
+Status: **PREFLIGHT ONLY — CLIENT IMAGE FROZEN; FULL T0 ATTACK SET NOT YET COMPLETE**
 
 Purpose: test whether adversarial client C can create the protected local transaction consequence without E1 by exploiting the local RPC boundary or an alternate signer.
 
@@ -68,18 +68,32 @@ Expected:
 
 This demonstrates that success is not caused merely by blocking transaction submission at the proxy.
 
-## Preflight-only limitation
+## Frozen client image
 
-The first run uses a named Node container tag only to discover and record its immutable repository digest.
+The adversarial client image is pinned to:
 
-Therefore its result is not promoted to a frozen Gate Zero witness.
+`node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8`
 
-After the observed image digest is pinned in the workflow, the attacks must be rerun before a witness result can be recorded.
+The workflow verifies the observed repository digest before running C.
+
+## Remaining preflight limitation
+
+This document covers the RPC/alternate-signer subset only.
+
+It is not promoted to the final Gate Zero witness until the separately frozen T0 attack set also covers:
+
+- protected-key reachability from C;
+- S0 reachability/mutation from C;
+- valid-Warrant payload substitution through E2;
+- restart/replay/concurrent-use attempts;
+- explicit recording of any T0 attack not executed.
+
+Therefore a successful rerun after the image pin remains a bounded RPC preflight, not a full Gate Zero PASS.
 
 ## Claim ceiling
 
 A successful preflight supports only:
 
-> The proposed adversarial-client/RPC topology executed the intended E1 bypass attempts without observing a protected consequence, subject to rerun after the C container image digest is frozen.
+> The frozen-client adversarial RPC topology executed the declared E1 RPC/alternate-signer bypass attempts without observing a protected consequence. This remains a preflight because the full frozen T0 attack set has not yet been executed.
 
 It does not establish Gate Zero PASS, E2/provider exclusivity, or Conditional Release Authority.
