@@ -287,7 +287,7 @@ test("decision chain rejects D1 receipt substitution after D2 candidate freeze",
         releaseVerification: verification(x.d2),
         profile: profile(),
       }),
-    "RELEASE_CANDIDATE_DERIVATION_MISMATCH"
+    "DECISION_CHAIN_D1_VERIFIED_RECEIPT_DIGEST_MISMATCH"
   );
 });
 
