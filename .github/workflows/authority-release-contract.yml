@@ -301,6 +301,50 @@ jobs:
           console.log(JSON.stringify(summary, null, 2));
           NODE
 
+      - name: Issue local Warrant and register S0
+        run: |
+          node scripts/issue-controlled-warrant-v0.mjs \
+            --request-shadow out/release/request-shadow.json \
+            --transition-envelope out/release/transition-envelope.json \
+            --candidate out/release/release-candidate.json \
+            --profile contracts/controlled-release-profile-v0.json \
+            --validate out/release/paygod-validate.json \
+            --receipt out/release/paygod/receipt.json \
+            --verification out/release/paygod-verification.json \
+            --state-db out/release/authority-state.db \
+            --output-dir out/release/warrant
+
+      - name: Assert local Warrant issuance witness
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const summary = JSON.parse(
+            fs.readFileSync('out/release/warrant/issuance-summary.json', 'utf8')
+          );
+          if (summary.status !== 'ISSUED') throw new Error('Warrant was not issued');
+          if (summary.decisionStatus !== 'AUTHENTICATED_CANONICAL_ALLOW') {
+            throw new Error('Warrant did not originate from authenticated canonical allow');
+          }
+          if (summary.decisionReplay !== 'not_performed') {
+            throw new Error('Decision replay boundary changed unexpectedly');
+          }
+          if (summary.s0State !== 'ISSUED') {
+            throw new Error('S0 did not persist ISSUED before Warrant return');
+          }
+          if (summary.warrantVerification !== 'VALID') {
+            throw new Error('Issued Warrant did not independently verify');
+          }
+          if (
+            summary.e1Executed !== false ||
+            summary.e2Executed !== false ||
+            summary.evmTransactionSubmitted !== false ||
+            summary.acpOrQuiverInteraction !== false
+          ) {
+            throw new Error('Issuance witness crossed the frozen execution boundary');
+          }
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
       - name: Remove controlled decision private key
         if: always()
         run: rm -f "${{ runner.temp }}/paygod-controlled-decision-private.pem"
