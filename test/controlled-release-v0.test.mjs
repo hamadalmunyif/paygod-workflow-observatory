@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { AuthorityError } from "../src/authority-error.mjs";
-import { buildControlledReleaseCandidateV0 } from "../src/controlled-release-candidate-v0.mjs";
+import {
+  buildControlledReleaseCandidateV0,
+  verifyControlledReleaseCandidateV0,
+} from "../src/controlled-release-candidate-v0.mjs";
 import { buildTransitionEnvelopeV0 } from "../src/transition-envelope-v0.mjs";
 
 const identity = "11".repeat(32);
@@ -134,5 +137,89 @@ test("controlled release candidate rejects non-local transition", () => {
         transitionEnvelopeBytes: tx.bytes,
       }),
     "RELEASE_TRANSITION_NOT_LOCAL"
+  );
+});
+
+
+test("controlled release candidate verifier accepts only the exact derived bytes", () => {
+  const tx = envelope();
+  const requestShadow = shadow();
+  const built = buildControlledReleaseCandidateV0({
+    requestShadow,
+    transitionEnvelopeBytes: tx.bytes,
+  });
+
+  const verified = verifyControlledReleaseCandidateV0({
+    candidateBytes: built.bytes,
+    requestShadow,
+    transitionEnvelopeBytes: tx.bytes,
+  });
+
+  assert.equal(verified.status, "VERIFIED");
+  assert.equal(verified.transitionCommitment, tx.transitionCommitment);
+});
+
+test("controlled release candidate verifier rejects mutated transition fields", () => {
+  const tx = envelope();
+  const requestShadow = shadow();
+  const built = buildControlledReleaseCandidateV0({
+    requestShadow,
+    transitionEnvelopeBytes: tx.bytes,
+  });
+  const mutated = JSON.parse(built.bytes.toString("utf8"));
+  mutated.transition.target = "0x" + "aa".repeat(20);
+
+  expectCode(
+    () =>
+      verifyControlledReleaseCandidateV0({
+        candidateBytes: Buffer.from(JSON.stringify(mutated), "utf8"),
+        requestShadow,
+        transitionEnvelopeBytes: tx.bytes,
+      }),
+    "RELEASE_CANDIDATE_DERIVATION_MISMATCH"
+  );
+});
+
+test("controlled release candidate verifier rejects forged transition commitment", () => {
+  const tx = envelope();
+  const requestShadow = shadow();
+  const built = buildControlledReleaseCandidateV0({
+    requestShadow,
+    transitionEnvelopeBytes: tx.bytes,
+  });
+  const mutated = JSON.parse(built.bytes.toString("utf8"));
+  mutated.transition.transition_commitment = "ab".repeat(32);
+
+  expectCode(
+    () =>
+      verifyControlledReleaseCandidateV0({
+        candidateBytes: Buffer.from(JSON.stringify(mutated), "utf8"),
+        requestShadow,
+        transitionEnvelopeBytes: tx.bytes,
+      }),
+    "RELEASE_CANDIDATE_DERIVATION_MISMATCH"
+  );
+});
+
+test("controlled release candidate verifier rejects alternate serialization", () => {
+  const tx = envelope();
+  const requestShadow = shadow();
+  const built = buildControlledReleaseCandidateV0({
+    requestShadow,
+    transitionEnvelopeBytes: tx.bytes,
+  });
+  const pretty = Buffer.from(
+    JSON.stringify(JSON.parse(built.bytes.toString("utf8")), null, 2),
+    "utf8"
+  );
+
+  expectCode(
+    () =>
+      verifyControlledReleaseCandidateV0({
+        candidateBytes: pretty,
+        requestShadow,
+        transitionEnvelopeBytes: tx.bytes,
+      }),
+    "RELEASE_CANDIDATE_DERIVATION_MISMATCH"
   );
 });
