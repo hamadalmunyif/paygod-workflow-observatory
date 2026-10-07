@@ -176,7 +176,11 @@ test(
     const x = await fixture();
     try {
       expectCode(
-        () => stagePayloadThroughE2V0(stageArgs(x, { warrantBodyBytes: null })),
+        () =>
+          stagePayloadThroughE2V0({
+            ...stageArgs(x),
+            warrantBodyBytes: null,
+          }),
         "E2_WARRANT_BODY_REQUIRED"
       );
       assert.equal(x.store.get({ issuerKeyId: x.issuerKeyId, nonce: x.body.body.nonce }).state, "ISSUED");
