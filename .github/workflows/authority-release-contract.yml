@@ -106,7 +106,7 @@ jobs:
           const candidate = JSON.parse(fs.readFileSync('out/release/release-candidate.json', 'utf8'));
           const packBytes = fs.readFileSync(profile.pack.path + '/pack.yaml');
           const packSha = crypto.createHash('sha256').update(packBytes).digest('hex');
-          const expectedPackSha = 'e4b94e20b6f93e899e9e93eaf2a9844c74483e1abbea88d13dbdc5033eabbca9';
+          const expectedPackSha = 'ea21e54e165c90418a6d4a903108441fa6d7c0e2c425adc14c0f62a430b9dc7b';
 
           if (validate.status !== 'success') throw new Error('PayGod validate did not succeed');
           if (verified.status !== 'valid' || verified.verification?.integrity !== 'verified') {
