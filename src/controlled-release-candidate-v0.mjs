@@ -50,6 +50,11 @@ export function buildControlledReleaseCandidateV0({
     "RELEASE_REQUEST_IDENTITY_INVALID",
     "admittedRequestIdentitySha256"
   );
+  const requestPayloadSha256 = requireSha256(
+    requestShadow?.request?.requestPayloadArtifactSha256,
+    "RELEASE_REQUEST_PAYLOAD_DIGEST_INVALID",
+    "requestPayloadArtifactSha256"
+  );
 
   if (
     requestShadow?.authority?.acpJobCreationAuthorized !== false ||
@@ -70,6 +75,12 @@ export function buildControlledReleaseCandidateV0({
       "transition request identity differs from the admitted request identity"
     );
   }
+  if (transition.envelope.payload.payload_sha256 !== requestPayloadSha256) {
+    authorityFail(
+      "RELEASE_REQUEST_PAYLOAD_MISMATCH",
+      "transition payload digest differs from the frozen request payload digest"
+    );
+  }
   if (
     transition.envelope.transaction.system !== "evm" ||
     transition.envelope.transaction.chain_id !== 31337
@@ -87,6 +98,7 @@ export function buildControlledReleaseCandidateV0({
       status: requestShadow.request.status,
       schema_validation: requestShadow.request.schemaValidation,
       admitted_request_identity_sha256: admittedIdentity,
+      request_payload_sha256: requestPayloadSha256,
       attempt_id: requestShadow.request.attemptId ?? null,
       attempt_commitment_sha256:
         requestShadow.request.attemptCommitmentSha256 ?? null,
