@@ -86,6 +86,7 @@ export class AuthorityStateStoreV0 {
 
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("PRAGMA synchronous=FULL");
+    this.db.exec("PRAGMA busy_timeout=5000");
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS authority_state (" +
         "issuer_key_id TEXT NOT NULL," +
