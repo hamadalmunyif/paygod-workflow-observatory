@@ -232,7 +232,15 @@ jobs:
             .s0_reachability.authority_state_db_mounted == false and
             .s0_reachability.client_s0_admin_api_exposed == false and
             .s0_reachability.client_s0_reset_path_observed == false and
-            (.s0_reachability.forbidden_s0_env_names_present | length) == 0
+            .s0_reachability.reset_rpc_attempts_rejected == true and
+            (.s0_reachability.forbidden_s0_env_names_present | length) == 0 and
+            .config_reachability.warrant_trust_store_mounted == false and
+            .config_reachability.caller_trust_configuration_input_exposed == false and
+            .config_reachability.docker_socket_mounted == false and
+            .config_reachability.client_script_read_only == true and
+            .config_reachability.enforcer_reconfiguration_rpc_attempts_rejected == true and
+            (.c_boundary_inventory.environment_variable_names | length) > 0 and
+            (.c_boundary_inventory.mount_points | length) > 0
           ' out/release/gate-zero-client/preflight.json >/dev/null
 
           node --input-type=module - <<'NODE'
@@ -244,6 +252,11 @@ jobs:
             'eth_sign',
             'eth_signTransaction',
             'personal_sign',
+            's0_reset',
+            'paygod_s0Reset',
+            'sqlite_exec',
+            'paygod_setTrustedWarrantIssuer',
+            'paygod_replaceEnforcer',
           ]);
 
           const lines = fs
