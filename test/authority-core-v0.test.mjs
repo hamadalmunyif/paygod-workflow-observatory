@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { generateKeyPairSync } from "node:crypto";
 
 import { AuthorityError } from "../src/authority-error.mjs";
 import { sha256Bytes } from "../src/digest.mjs";
@@ -251,6 +252,15 @@ test("warrant verifier rejects wrong domain, unknown issuer, early use and expir
   );
 });
 
+
+test("warrant v0 rejects non-Ed25519 issuer public keys", () => {
+  const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  expectCode(
+    () => issuerKeyIdFromPublicKey(publicKey),
+    "WARRANT_ISSUER_KEY_TYPE_INVALID"
+  );
+});
+
 let sqliteAvailable = false;
 try {
   await import("node:sqlite");
@@ -258,6 +268,14 @@ try {
 } catch {
   sqliteAvailable = false;
 }
+
+test(
+  "reference authority harness runtime exposes node:sqlite on Node 22+",
+  { skip: Number(process.versions.node.split(".")[0]) < 22 },
+  () => {
+    assert.equal(sqliteAvailable, true);
+  }
+);
 
 test(
   "S0 persists nonce consumption across restart and rejects replay",
@@ -310,6 +328,7 @@ test(
       nonce,
       transitionCommitment: transition.transitionCommitment,
       enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      warrantBodySha256: warrant.bodySha256,
       payloadSha256,
     });
     assert.equal(staged.state, "PAYLOAD_STAGED");
@@ -319,6 +338,7 @@ test(
       nonce,
       transitionCommitment: transition.transitionCommitment,
       enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+          warrantBodySha256: warrant.bodySha256,
     });
     assert.equal(reserved.state, "TX_RESERVED");
     assert.equal(reserved.consumedAt, now);
@@ -337,6 +357,7 @@ test(
           nonce,
           transitionCommitment: transition.transitionCommitment,
           enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+          warrantBodySha256: warrant.bodySha256,
         }),
       "S0_STATE_INVALID"
     );
@@ -384,6 +405,7 @@ test(
           nonce,
           transitionCommitment: "dd".repeat(32),
           enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      warrantBodySha256: warrant.bodySha256,
           payloadSha256,
         }),
       "S0_TRANSITION_COMMITMENT_MISMATCH"
@@ -397,9 +419,59 @@ test(
           nonce,
           transitionCommitment: transition.transitionCommitment,
           enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      warrantBodySha256: warrant.bodySha256,
           payloadSha256,
         }),
       "S0_WARRANT_EXPIRED"
+    );
+
+    store.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+);
+
+test(
+  "S0 rejects a warrant body digest different from the registered body",
+  { skip: !sqliteAvailable },
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "paygod-s0-"));
+    const dbPath = path.join(dir, "authority.db");
+    const now = 1_800_000_000_000;
+
+    const transition = baselineTransition();
+    const { publicKey } = generateIssuerKeyPairV0();
+    const issuerKeyId = issuerKeyIdFromPublicKey(publicKey);
+    const nonce = "cd".repeat(32);
+    const warrant = buildWarrantBodyV0({
+      transitionCommitment: transition.transitionCommitment,
+      notBefore: now,
+      expiresAt: now + 60_000,
+      nonce,
+      issuerKeyId,
+    });
+
+    const store = await openAuthorityStateStoreV0(dbPath, { now: () => now });
+    store.registerIssued({
+      issuerKeyId,
+      nonce,
+      transitionCommitment: transition.transitionCommitment,
+      enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      notBefore: warrant.body.not_before,
+      expiresAt: warrant.body.expires_at,
+      warrantBodySha256: warrant.bodySha256,
+    });
+
+    expectCode(
+      () =>
+        store.stagePayload({
+          issuerKeyId,
+          nonce,
+          transitionCommitment: transition.transitionCommitment,
+          enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+          warrantBodySha256: "de".repeat(32),
+          payloadSha256,
+        }),
+      "S0_WARRANT_BODY_DIGEST_MISMATCH"
     );
 
     store.close();
@@ -442,6 +514,7 @@ test(
       nonce,
       transitionCommitment: transition.transitionCommitment,
       enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+      warrantBodySha256: warrant.bodySha256,
       payloadSha256,
     });
     store.reserveTransaction({
@@ -449,6 +522,7 @@ test(
       nonce,
       transitionCommitment: transition.transitionCommitment,
       enforcementDomain: CONTROLLED_ENFORCEMENT_DOMAIN,
+          warrantBodySha256: warrant.bodySha256,
     });
     store.markTxExecuted({
       issuerKeyId,
