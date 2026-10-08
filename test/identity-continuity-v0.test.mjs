@@ -144,95 +144,200 @@ function decisionFixture(tx, packDigest = packDigestA) {
   };
 }
 
-test("A/B matrix: transition B plus coherent candidate B cannot reuse decision artifacts A", () => {
-  const a = decisionFixture(transition("66"));
-  const b = decisionFixture(transition("99"));
+function admit(fixture, overrides = {}) {
+  return verifyControlledDecisionAdmissionV0({
+    candidateBytes: overrides.candidateBytes ?? fixture.candidate.bytes,
+    requestShadow: overrides.requestShadow ?? fixture.requestShadow,
+    transitionEnvelopeBytes:
+      overrides.transitionEnvelopeBytes ?? fixture.tx.bytes,
+    releaseProfile: overrides.releaseProfile ?? profile(),
+    paygodValidate: overrides.paygodValidate ?? fixture.validate,
+    receiptBytes: overrides.receiptBytes ?? fixture.receiptBytes,
+    paygodVerification:
+      overrides.paygodVerification ?? fixture.verification,
+  });
+}
 
-  assert.notEqual(a.candidateHash, b.candidateHash);
+const runA = decisionFixture(transition("66"));
+const runB = decisionFixture(transition("99"));
 
-  expectCode(
-    () =>
-      verifyControlledDecisionAdmissionV0({
-        candidateBytes: b.candidate.bytes,
-        requestShadow: b.requestShadow,
-        transitionEnvelopeBytes: b.tx.bytes,
-        releaseProfile: profile(),
-        paygodValidate: a.validate,
-        receiptBytes: a.receiptBytes,
-        paygodVerification: a.verification,
-      }),
-    "DECISION_VALIDATE_CANDIDATE_HASH_MISMATCH"
-  );
+test("matrix controls: coherent A+A and B+B decisions are admitted", () => {
+  assert.equal(admit(runA).status, "AUTHENTICATED_CANONICAL_ALLOW");
+  assert.equal(admit(runB).status, "AUTHENTICATED_CANONICAL_ALLOW");
+  assert.notEqual(runA.candidateHash, runB.candidateHash);
 });
 
-test("A/B matrix: valid decision receipt from policy B cannot satisfy policy profile A", () => {
-  const tx = transition("66");
-  const b = decisionFixture(tx, packDigestB);
+const decisionMatrix = [
+  {
+    edge: "Request/Transition -> Release Candidate",
+    expectedCode: "RELEASE_CANDIDATE_DERIVATION_MISMATCH",
+    cross(left, right) {
+      return () =>
+        admit(left, {
+          candidateBytes: left.candidate.bytes,
+          requestShadow: right.requestShadow,
+          transitionEnvelopeBytes: right.tx.bytes,
+        });
+    },
+  },
+  {
+    edge: "Release Candidate -> PayGod validate hash",
+    expectedCode: "DECISION_VALIDATE_CANDIDATE_HASH_MISMATCH",
+    cross(left, right) {
+      return () =>
+        admit(left, {
+          paygodValidate: right.validate,
+        });
+    },
+  },
+  {
+    edge: "Release Candidate -> Decision Receipt",
+    expectedCode: "DECISION_RECEIPT_INPUT_HASH_MISMATCH",
+    cross(left, right) {
+      return () =>
+        admit(left, {
+          receiptBytes: right.receiptBytes,
+          paygodVerification: right.verification,
+        });
+    },
+  },
+  {
+    edge: "Decision Receipt -> Verification result",
+    expectedCode: "DECISION_RECEIPT_DIGEST_MISMATCH",
+    cross(left, right) {
+      return () =>
+        admit(left, {
+          paygodVerification: right.verification,
+        });
+    },
+  },
+];
+
+for (const matrixCase of decisionMatrix) {
+  test(`A/B matrix: ${matrixCase.edge} rejects A+B and B+A`, () => {
+    expectCode(matrixCase.cross(runA, runB), matrixCase.expectedCode);
+    expectCode(matrixCase.cross(runB, runA), matrixCase.expectedCode);
+  });
+}
+
+test("A/B matrix: Policy/Profile -> Decision Receipt rejects both valid cross-profile substitutions", () => {
+  const policyA = decisionFixture(transition("66"), packDigestA);
+  const policyB = decisionFixture(transition("66"), packDigestB);
 
   expectCode(
     () =>
-      verifyControlledDecisionAdmissionV0({
-        candidateBytes: b.candidate.bytes,
-        requestShadow: b.requestShadow,
-        transitionEnvelopeBytes: b.tx.bytes,
+      admit(policyA, {
         releaseProfile: profile(packDigestA),
-        paygodValidate: b.validate,
-        receiptBytes: b.receiptBytes,
-        paygodVerification: b.verification,
+        receiptBytes: policyB.receiptBytes,
+        paygodVerification: policyB.verification,
       }),
     "DECISION_PACK_CONTRACT_MISMATCH"
   );
-});
-
-test("A/B matrix: verification result B cannot authenticate receipt A bytes", () => {
-  const a = decisionFixture(transition("66"));
-  const b = decisionFixture(transition("99"));
 
   expectCode(
     () =>
-      verifyControlledDecisionAdmissionV0({
-        candidateBytes: a.candidate.bytes,
-        requestShadow: a.requestShadow,
-        transitionEnvelopeBytes: a.tx.bytes,
-        releaseProfile: profile(),
-        paygodValidate: a.validate,
-        receiptBytes: a.receiptBytes,
-        paygodVerification: b.verification,
+      admit(policyB, {
+        releaseProfile: profile(packDigestB),
+        receiptBytes: policyA.receiptBytes,
+        paygodVerification: policyA.verification,
       }),
-    "DECISION_RECEIPT_DIGEST_MISMATCH"
+    "DECISION_PACK_CONTRACT_MISMATCH"
+  );
+
+  assert.equal(
+    admit(policyA, { releaseProfile: profile(packDigestA) }).status,
+    "AUTHENTICATED_CANONICAL_ALLOW"
+  );
+  assert.equal(
+    admit(policyB, { releaseProfile: profile(packDigestB) }).status,
+    "AUTHENTICATED_CANONICAL_ALLOW"
   );
 });
 
-test("A/B matrix: Warrant for transition A cannot verify against transition B", () => {
-  const txA = transition("66");
-  const txB = transition("99");
+test("A/B matrix: Warrant -> Transition rejects both cross-run substitutions while coherent controls verify", () => {
   const { publicKey, privateKey } = generateIssuerKeyPairV0();
   const issuerKeyId = issuerKeyIdFromPublicKey(publicKey);
+  const trustedIssuers = new Map([
+    [issuerKeyId, exportIssuerPublicKeySpkiDer(publicKey)],
+  ]);
 
-  const body = buildWarrantBodyV0({
-    transitionCommitment: txA.transitionCommitment,
-    notBefore: 1_000,
-    expiresAt: 2_000,
-    nonce: "aa".repeat(32),
-    issuerKeyId,
-  });
-  const signed = signWarrantBodyV0({
-    bodyBytes: body.bytes,
-    privateKey,
-    publicKey,
-  });
+  function makeSigned(tx, nonceByte) {
+    const body = buildWarrantBodyV0({
+      transitionCommitment: tx.transitionCommitment,
+      notBefore: 1_000,
+      expiresAt: 2_000,
+      nonce: nonceByte.repeat(32),
+      issuerKeyId,
+    });
+    return signWarrantBodyV0({
+      bodyBytes: body.bytes,
+      privateKey,
+      publicKey,
+    });
+  }
+
+  const warrantA = makeSigned(runA.tx, "aa");
+  const warrantB = makeSigned(runB.tx, "bb");
+
+  assert.equal(
+    verifyWarrantV0({
+      bodyBytes: warrantA.bodyBytes,
+      signatureBytes: warrantA.signatureBytes,
+      trustedIssuers,
+      expectedTransitionCommitment: runA.tx.transitionCommitment,
+      nowMs: 1_500,
+    }).status,
+    "VALID"
+  );
+
+  assert.equal(
+    verifyWarrantV0({
+      bodyBytes: warrantB.bodyBytes,
+      signatureBytes: warrantB.signatureBytes,
+      trustedIssuers,
+      expectedTransitionCommitment: runB.tx.transitionCommitment,
+      nowMs: 1_500,
+    }).status,
+    "VALID"
+  );
 
   expectCode(
     () =>
       verifyWarrantV0({
-        bodyBytes: signed.bodyBytes,
-        signatureBytes: signed.signatureBytes,
-        trustedIssuers: new Map([
-          [issuerKeyId, exportIssuerPublicKeySpkiDer(publicKey)],
-        ]),
-        expectedTransitionCommitment: txB.transitionCommitment,
+        bodyBytes: warrantA.bodyBytes,
+        signatureBytes: warrantA.signatureBytes,
+        trustedIssuers,
+        expectedTransitionCommitment: runB.tx.transitionCommitment,
         nowMs: 1_500,
       }),
     "WARRANT_TRANSITION_COMMITMENT_MISMATCH"
   );
+
+  expectCode(
+    () =>
+      verifyWarrantV0({
+        bodyBytes: warrantB.bodyBytes,
+        signatureBytes: warrantB.signatureBytes,
+        trustedIssuers,
+        expectedTransitionCommitment: runA.tx.transitionCommitment,
+        nowMs: 1_500,
+      }),
+    "WARRANT_TRANSITION_COMMITMENT_MISMATCH"
+  );
+});
+
+test("Warrant v0 limitation is explicit: body has no direct decision-receipt or candidate commitment", () => {
+  const { publicKey } = generateIssuerKeyPairV0();
+  const body = buildWarrantBodyV0({
+    transitionCommitment: runA.tx.transitionCommitment,
+    notBefore: 1_000,
+    expiresAt: 2_000,
+    nonce: "cc".repeat(32),
+    issuerKeyId: issuerKeyIdFromPublicKey(publicKey),
+  }).body;
+
+  assert.equal(Object.hasOwn(body, "decision_receipt_sha256"), false);
+  assert.equal(Object.hasOwn(body, "release_candidate_canonical_hash"), false);
+  assert.equal(Object.hasOwn(body, "pack_digest_sha256"), false);
+  assert.equal(Object.hasOwn(body, "decision_issuer_key_id"), false);
 });
