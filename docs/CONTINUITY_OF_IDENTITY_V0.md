@@ -181,6 +181,14 @@ The external review that found the original Candidate/Receipt defect predates th
 
 > **NOT YET OBTAINED**
 
+Review clock:
+
+- start: **2026-10-08** (continuity closure merged to main);
+- decision date: **2026-10-15**;
+- if no qualified external human review is obtained by the decision date, record the status as **NOT_OBTAINED_BY_DEADLINE**;
+- do **not** substitute author self-review or an AI review and describe it as independent external validation;
+- failure to obtain the review by the deadline does not silently extend this engineering phase: AP2 Collision Pass B may proceed with the missing independent re-review preserved as an explicit limitation.
+
 Permitted wording is limited to:
 
 > The controlled issuer bridge is implemented and regression-tested to require that the authenticated PayGod receipt and canonical validate result refer to the exact current Release Candidate before any Warrant can be issued.
@@ -196,9 +204,11 @@ Do not infer:
 
 ## 9. Next gate
 
-After this continuity closure is green on CI, the next steps are:
+After this continuity closure is green on CI:
 
-1. independent re-review of the current implementation and A/B matrix;
-2. AP2 Collision Pass B.
+1. seek independent human re-review of the current implementation and A/B matrix through 2026-10-15;
+2. prepare AP2 Collision Pass B in parallel;
+3. if the independent review is obtained, preserve its result and use the exact green main commit it reviewed;
+4. if it is not obtained by 2026-10-15, record **NOT_OBTAINED_BY_DEADLINE** and proceed to AP2 Collision Pass B without relabeling any self/AI review as independent.
 
 The direct Receipt -> Warrant lineage limitation is carried into Pass B rather than solved by adding a new authority primitive beforehand.
