@@ -105,11 +105,29 @@ These are trust assumptions, not proven negatives.
 
 A trusted issuer-key compromise is treated as **total authority compromise for that issuer epoch**.
 
+### T0-I — issuer integrity assumption
+
+T0 explicitly assumes that the Warrant issuer process `I` and its active signing key are not compromised during the witness epoch.
+
+This is a trust assumption, not a tested negative.
+
+If T0-I fails, a cryptographically valid Warrant can potentially be minted without an authenticated PayGod decision. Warrant v0 does not directly commit the exact decision receipt or release-candidate identity, so E1/E2 cannot determine from the Warrant body alone whether canonical decision admission actually occurred.
+
+The local issuance audit and post-flight verifier can expose missing or inconsistent decision lineage after the fact, but they are not a substitute for pre-execution issuer integrity.
+
+T0 therefore does not claim resistance to:
+
+- compromise of the Warrant issuer process;
+- use of the Warrant issuer signing key outside the canonical issuance path;
+- operator/root compromise that can replace issuer code or key material.
+
+Any future threat model that moves these conditions inside scope must add a separately enforceable issuer-control mechanism rather than treating the current audit trail as preventive authority.
+
 ## 6. Trust roots
 
 T0 identifies the following trust roots:
 
-- the PayGod warrant issuer key for the active issuer epoch;
+- the PayGod warrant issuer key and the integrity of the Warrant issuer process for the active issuer epoch;
 - the enforcement root that validates the transaction surface;
 - the enforcement root that validates the payload surface;
 - the consumed-nonce state used for single-use semantics;
