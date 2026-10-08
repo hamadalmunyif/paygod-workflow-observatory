@@ -20,7 +20,7 @@ This commit is the re-frozen post-falsifier main review target and completed all
 - `shadow-contract`
 - `authority-release-contract`
 
-Do not review a later commit unless the handoff is explicitly re-frozen again.
+The frozen **code** review target remains the commit above. The handoff document itself may be delivered from a later documentation-only commit. A reviewer must record both the handoff-document commit and the frozen code target, and must not silently substitute another code revision.
 
 ## Reviewer question
 
@@ -42,7 +42,7 @@ Only these files are required initially:
 - `src/warrant-v0.mjs`
 - `src/controlled-release-candidate-v0.mjs`
 
-Do not start from prior vulnerability reports, prior reviewer conclusions, or Pass A/AP2 conclusions.
+Do not start from prior vulnerability reports, prior reviewer conclusions, AI-assisted review notes, or Pass A/AP2 conclusions.
 
 ## Access, confidentiality, and minimal execution
 
@@ -51,15 +51,42 @@ Repository access:
 - repository visibility may change; use only the exact frozen review commit above;
 - findings, reproductions, screenshots, and repository contents should remain confidential until the repository owner explicitly agrees otherwise.
 
-Environment:
+Environment parity with the canonical authority workflow requires:
 
-- use **Node.js 22** for the review environment.
+- **Node.js 22**;
+- **Python 3.12**;
+- **.NET SDK 8.0.x**;
+- `git` and network access to fetch the separately versioned PayGod kernel dependency.
 
-Start with one command:
+The canonical issuer intentionally does **not** vendor the PayGod kernel into this repository. The authority workflow checks out the kernel at the frozen commit:
+
+`23ea2cca74ef8b698718c6d0c8dbda447f13bb37`
+
+under:
+
+`external/paygod-kernel`
+
+Before treating a missing dependency as a continuity failure, reproduce the same pinned dependency boundary used by CI:
+
+```bash
+mkdir -p external
+git clone https://github.com/hamadalmunyif/paygod-kernel-mvp.git external/paygod-kernel
+git -C external/paygod-kernel checkout --detach 23ea2cca74ef8b698718c6d0c8dbda447f13bb37
+test "$(git -C external/paygod-kernel rev-parse HEAD)" = "23ea2cca74ef8b698718c6d0c8dbda447f13bb37"
+
+python3 -m pip install -r external/paygod-kernel/tools/requirements-issuer-auth.txt
+dotnet --version
+```
+
+Then start the Observatory review with:
 
 ```bash
 npm test
 ```
+
+For canonical-path parity, use `.github/workflows/authority-release-contract.yml` as the normative execution recipe. In particular, the canonical issuer path first runs the pinned PayGod verifier from `external/paygod-kernel/tools/verify_portable_evidence.py` and requires issuer authenticity before Warrant issuance.
+
+If the reviewer cannot execute the canonical path because one of these declared external toolchain requirements is unavailable, the correct result is `INCONCLUSIVE` rather than `PASS` or `FAIL` on continuity.
 
 The reviewer may then add local adversarial tests or scripts as needed. Those local changes do not need to be proposed upstream unless they expose a finding worth preserving.
 
