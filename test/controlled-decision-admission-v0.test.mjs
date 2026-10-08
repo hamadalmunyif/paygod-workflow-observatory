@@ -6,11 +6,11 @@ import { sha256Bytes } from "../src/digest.mjs";
 import { buildTransitionEnvelopeV0 } from "../src/transition-envelope-v0.mjs";
 import { buildControlledReleaseCandidateV0 } from "../src/controlled-release-candidate-v0.mjs";
 import { verifyControlledDecisionAdmissionV0 } from "../src/controlled-decision-admission-v0.mjs";
+import { canonicalizePayGodJsonBytesV1 } from "../src/paygod-c14n-v1.mjs";
 
 const identity = "11".repeat(32);
 const payloadDigest = "22".repeat(32);
 const attemptCommitment = "33".repeat(32);
-const canonicalHash = "44".repeat(32);
 const packDigest = "ea21e54e165c90418a6d4a903108441fa6d7c0e2c425adc14c0f62a430b9dc7b";
 
 function expectCode(fn, code) {
@@ -92,6 +92,7 @@ function baseline() {
     requestShadow: shadow,
     transitionEnvelopeBytes: tx.bytes,
   });
+  const canonicalHash = canonicalizePayGodJsonBytesV1(candidate.bytes).hash;
   const receiptObject = {
     input: { canonical_hash: canonicalHash },
     pack: {
@@ -220,6 +221,51 @@ test("A47 candidate / receipt canonical input mismatch is rejected", () => {
   expectCode(
     () => admit({ receiptBytes, paygodVerification: verification }),
     "DECISION_RECEIPT_INPUT_HASH_MISMATCH"
+  );
+});
+
+test("A47b valid receipt/validate from run A cannot authorize coherent candidate B", () => {
+  const a = baseline();
+
+  const txB = buildTransitionEnvelopeV0({
+    requestIdentitySha256: identity,
+    transaction: {
+      system: "evm",
+      chainId: 31337,
+      executionAccount: "0x" + "55".repeat(20),
+      target: "0x" + "99".repeat(20),
+      calldataSha256: "77".repeat(32),
+      nativeValue: "0",
+    },
+    payload: {
+      channel: "controlled-requirement-message/v0",
+      recipient: "0x" + "88".repeat(20),
+      contentType: "requirement",
+      payloadSha256: payloadDigest,
+    },
+  });
+  const candidateB = buildControlledReleaseCandidateV0({
+    requestShadow: a.shadow,
+    transitionEnvelopeBytes: txB.bytes,
+  });
+
+  assert.notEqual(
+    canonicalizePayGodJsonBytesV1(candidateB.bytes).hash,
+    a.validate.data.hash
+  );
+
+  expectCode(
+    () =>
+      verifyControlledDecisionAdmissionV0({
+        candidateBytes: candidateB.bytes,
+        requestShadow: a.shadow,
+        transitionEnvelopeBytes: txB.bytes,
+        releaseProfile: a.profile,
+        paygodValidate: a.validate,
+        receiptBytes: a.receiptBytes,
+        paygodVerification: a.verification,
+      }),
+    "DECISION_VALIDATE_CANDIDATE_HASH_MISMATCH"
   );
 });
 

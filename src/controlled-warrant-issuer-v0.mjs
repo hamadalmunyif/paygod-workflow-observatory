@@ -118,6 +118,8 @@ export function issueControlledWarrantV0({
     decision_status: decision.status,
     decision_receipt_sha256: sha256Bytes(exactReceiptBytes),
     decision_canonical_input_hash: decision.canonicalInputHash,
+    decision_candidate_canonical_hash: decision.candidateCanonicalHash,
+    decision_candidate_canonical_profile: decision.candidateCanonicalProfile,
     decision_issuer_key_id: decision.decisionIssuerKeyId,
     decision_replay: decision.decisionReplay,
     release_candidate_sha256: sha256Bytes(exactCandidateBytes),
