@@ -2,7 +2,7 @@
 
 Status: **READY FOR EXTERNAL HUMAN REVIEW**
 
-Purpose: give a reviewer the smallest neutral package needed to try to break the current decision-to-Warrant continuity boundary without exposing prior conclusions.
+Purpose: give a reviewer the smallest neutral package needed to try to break the current decision-to-Warrant continuity boundary without exposing prior conclusions. This revision re-freezes the target after the trust-boundary clarification and regression test added following the self-trusting falsifier review.
 
 ## Frozen review target
 
@@ -12,15 +12,15 @@ Repository:
 
 Review commit:
 
-`37b2590cf3e9d63ac9f6b0534078a1f2db7a0d05`
+`2d1a8fc4c2b7ecb45ebd365ca41739de0455cb3f`
 
-This commit is the first post-closure main commit for this handoff and completed all three main-branch workflows successfully:
+This commit is the re-frozen post-falsifier main review target and completed all three main-branch workflows successfully:
 
 - `ci`
 - `shadow-contract`
 - `authority-release-contract`
 
-Do not review a later commit unless the handoff is explicitly re-frozen.
+Do not review a later commit unless the handoff is explicitly re-frozen again.
 
 ## Reviewer question
 
