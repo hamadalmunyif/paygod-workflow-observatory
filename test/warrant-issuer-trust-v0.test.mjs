@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 
 import { AuthorityError } from "../src/authority-error.mjs";
-import { generateIssuerKeyPairV0 } from "../src/warrant-v0.mjs";
+import {
+  buildWarrantBodyV0,
+  generateIssuerKeyPairV0,
+  issuerKeyIdFromPublicKey,
+  signWarrantBodyV0,
+  verifyWarrantV0,
+} from "../src/warrant-v0.mjs";
 import {
   buildWarrantIssuerTrustStoreV0,
   resolveWarrantIssuerFromExternalTrustV0,
@@ -161,5 +167,44 @@ test("external trust store rejects key id that does not match SPKI bytes", () =>
         trustStore: trust,
       }),
     "WARRANT_TRUST_KEY_ID_MISMATCH"
+  );
+});
+
+
+test("attacker-selected issuer and attacker-selected trust set do not model T0 acceptance", () => {
+  const trustedPair = generateIssuerKeyPairV0();
+  const attackerPair = generateIssuerKeyPairV0();
+  const frozenTrust = buildWarrantIssuerTrustStoreV0({
+    publicKey: trustedPair.publicKey,
+  });
+  const resolved = trustedWarrantIssuersFromExternalTrustV0({
+    trustStore: frozenTrust.trust,
+    trustStoreBytes: frozenTrust.bytes,
+  });
+
+  const attackerIssuerKeyId = issuerKeyIdFromPublicKey(attackerPair.publicKey);
+  const body = buildWarrantBodyV0({
+    transitionCommitment: "11".repeat(32),
+    notBefore: 1_000,
+    expiresAt: 2_000,
+    nonce: "22".repeat(32),
+    issuerKeyId: attackerIssuerKeyId,
+  });
+  const signed = signWarrantBodyV0({
+    bodyBytes: body.bytes,
+    privateKey: attackerPair.privateKey,
+    publicKey: attackerPair.publicKey,
+  });
+
+  expectCode(
+    () =>
+      verifyWarrantV0({
+        bodyBytes: signed.bodyBytes,
+        signatureBytes: signed.signatureBytes,
+        trustedIssuers: resolved.trustedIssuers,
+        expectedTransitionCommitment: body.body.transition_commitment,
+        nowMs: 1_500,
+      }),
+    "WARRANT_ISSUER_UNTRUSTED"
   );
 });

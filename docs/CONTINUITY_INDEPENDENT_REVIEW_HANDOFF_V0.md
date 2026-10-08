@@ -48,9 +48,8 @@ Do not start from prior vulnerability reports, prior reviewer conclusions, or Pa
 
 Repository access:
 
-- this repository is **private**;
-- the reviewer needs explicit GitHub collaborator access before cloning or reading the review target;
-- findings, reproductions, screenshots, and repository contents should remain confidential and must not be published or shared outside the review until explicit agreement with the repository owner.
+- repository visibility may change; use only the exact frozen review commit above;
+- findings, reproductions, screenshots, and repository contents should remain confidential until the repository owner explicitly agrees otherwise.
 
 Environment:
 
@@ -64,6 +63,24 @@ npm test
 
 The reviewer may then add local adversarial tests or scripts as needed. Those local changes do not need to be proposed upstream unless they expose a finding worth preserving.
 
+## Trust-boundary rule for falsifiers
+
+A falsifier must preserve the frozen trust configuration.
+
+The following does **not** establish a T0 bypass by itself:
+
+1. generate a new attacker-controlled Warrant issuer key;
+2. sign a Warrant with that key; and
+3. construct a fresh local verifier trust set that trusts the same attacker key.
+
+That demonstrates signature self-consistency under an attacker-selected trust root, not acceptance by the frozen T0 enforcement trust root.
+
+Likewise, directly importing the low-level `issueControlledWarrantV0` helper and supplying caller-authored `paygodVerification` metadata is not the canonical issuer process. The canonical controlled issuer entrypoint is `scripts/issue-controlled-warrant-v0.mjs`, which first runs the pinned PayGod standalone verifier with the external decision trust store and requires issuer authenticity before loading the verification result.
+
+A material finding exists if the reviewer can make the **canonical issuer path**, using the frozen issuer/trust configuration and without compromising T0-I, issue an accepted Warrant for an unauthenticated or differently evaluated candidate.
+
+If the reviewer can reach the low-level helper through a signer/API actually exposed to adversarial client C while still using the active trusted issuer key, that is separately material because it would move the helper into the declared T0 attack surface.
+
 ## Success / failure criterion
 
 A material failure exists if the reviewer can produce a path in which:
@@ -75,7 +92,8 @@ A result is not a material continuity failure merely because:
 
 - Warrant v0 lacks direct portable Decision Receipt commitment; that limitation is already declared;
 - T0-I assumes the Warrant issuer process and signing key are uncompromised;
-- an attack requires capabilities explicitly outside T0.
+- an attack requires capabilities explicitly outside T0;
+- the attacker replaces the frozen trusted-issuer set with its own key.
 
 If either declared limitation itself enables a stronger in-scope attack than documented, record that separately.
 
