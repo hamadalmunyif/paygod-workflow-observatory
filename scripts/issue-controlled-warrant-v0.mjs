@@ -182,6 +182,8 @@ try {
     decisionStatus: issued.decision.status,
     decisionIssuerKeyId: issued.decision.decisionIssuerKeyId,
     decisionReplay: issued.decision.decisionReplay,
+    decisionCandidateCanonicalHash: issued.decision.candidateCanonicalHash,
+    decisionCandidateCanonicalProfile: issued.decision.candidateCanonicalProfile,
     requestIdentitySha256: issued.decision.requestIdentitySha256,
     attemptId: issued.decision.attemptId,
     attemptCommitmentSha256: issued.decision.attemptCommitmentSha256,
