@@ -657,6 +657,15 @@ jobs:
           if (summary.decisionReplay !== 'not_performed') {
             throw new Error('Decision replay boundary changed unexpectedly');
           }
+          const validate = JSON.parse(
+            fs.readFileSync('out/release/paygod-validate.json', 'utf8')
+          );
+          if (
+            summary.decisionCandidateCanonicalProfile !== 'paygod-c14n-v1' ||
+            summary.decisionCandidateCanonicalHash !== validate?.data?.hash
+          ) {
+            throw new Error('Issuer bridge candidate identity differs from pinned PayGod canonical validate');
+          }
           if (summary.s0State !== 'ISSUED') {
             throw new Error('S0 did not persist ISSUED before Warrant return');
           }
