@@ -11,11 +11,11 @@ import { buildControlledReleaseCandidateV0 } from "../src/controlled-release-can
 import { generateIssuerKeyPairV0 } from "../src/warrant-v0.mjs";
 import { openAuthorityStateStoreV0 } from "../src/authority-state-v0.mjs";
 import { issueControlledWarrantV0 } from "../src/controlled-warrant-issuer-v0.mjs";
+import { canonicalizePayGodJsonBytesV1 } from "../src/paygod-c14n-v1.mjs";
 
 const identity = "11".repeat(32);
 const payloadDigest = "22".repeat(32);
 const attemptCommitment = "33".repeat(32);
-const canonicalHash = "44".repeat(32);
 const packDigest = "ea21e54e165c90418a6d4a903108441fa6d7c0e2c425adc14c0f62a430b9dc7b";
 
 function expectCode(fn, code) {
@@ -102,6 +102,7 @@ function inputs(overrides = {}) {
       transitionEnvelopeBytes: tx.bytes,
     });
 
+  const canonicalHash = canonicalizePayGodJsonBytesV1(candidate.bytes).hash;
   const receiptObject = {
     input: { canonical_hash: canonicalHash },
     pack: {
