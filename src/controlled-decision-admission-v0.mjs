@@ -1,6 +1,7 @@
 import { authorityFail } from "./authority-error.mjs";
 import { sha256Bytes } from "./digest.mjs";
 import { verifyControlledReleaseCandidateV0 } from "./controlled-release-candidate-v0.mjs";
+import { canonicalizePayGodJsonBytesV1 } from "./paygod-c14n-v1.mjs";
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
@@ -128,6 +129,14 @@ export function verifyControlledDecisionAdmissionV0({
     "paygodValidate.data.hash"
   );
 
+  const candidateCanonical = canonicalizePayGodJsonBytesV1(derived.bytes);
+  if (candidateCanonical.hash !== canonicalInputHash) {
+    authorityFail(
+      "DECISION_VALIDATE_CANDIDATE_HASH_MISMATCH",
+      "PayGod canonical validate hash does not match the exact current Release Candidate"
+    );
+  }
+
   if (verification.status !== "valid") {
     authorityFail(
       "DECISION_BUNDLE_INVALID",
@@ -192,10 +201,10 @@ export function verifyControlledDecisionAdmissionV0({
     );
   }
 
-  if (receipt.parsed?.input?.canonical_hash !== canonicalInputHash) {
+  if (receipt.parsed?.input?.canonical_hash !== candidateCanonical.hash) {
     authorityFail(
       "DECISION_RECEIPT_INPUT_HASH_MISMATCH",
-      "receipt canonical input hash differs from canonical validate output"
+      "receipt canonical input hash differs from the exact current Release Candidate"
     );
   }
 
@@ -254,6 +263,8 @@ export function verifyControlledDecisionAdmissionV0({
   return {
     status: "AUTHENTICATED_CANONICAL_ALLOW",
     canonicalInputHash,
+    candidateCanonicalHash: candidateCanonical.hash,
+    candidateCanonicalProfile: candidateCanonical.profile,
     receiptSha256,
     decisionIssuerKeyId,
     decisionReplay: "not_performed",
