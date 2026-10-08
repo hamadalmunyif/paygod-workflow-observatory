@@ -203,6 +203,10 @@ T0 requires rejection of:
 
 Full production-grade key rotation and revocation infrastructure is outside T0.
 
+A verifier test is valid only against the frozen trusted-issuer configuration. Generating a new Warrant key and then constructing a new local trust set that trusts that same key does not demonstrate an untrusted-issuer bypass; it replaces the trust root under test.
+
+Similarly, a direct call to an internal issuance helper with caller-authored verifier metadata is not equivalent to the canonical issuer process unless adversarial client C can reach that helper while the active trusted issuer key remains available. If such a reachable path exists, it becomes an in-scope signer/API bypass candidate under Sections 3–4.
+
 The limitation must remain visible in all conclusions.
 
 ## 10. Claim boundary
