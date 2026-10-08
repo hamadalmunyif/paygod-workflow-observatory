@@ -28,6 +28,8 @@ Do not review a later commit unless the handoff is explicitly re-frozen.
 
 The reviewer is free to use any mutation, cross-run substitution, stale artifact, alternate ordering, replay, or internally coherent A/B construction that remains inside the current T0 boundary.
 
+The review scope is explicitly **Threat Model T0**, including **T0-I**: the Warrant issuer process and active issuer signing key are assumed uncompromised. An attack that starts by possessing or compromising the issuer signing key/process is outside this review scope unless it demonstrates a stronger in-scope consequence than the documented T0-I limitation.
+
 ## Read first
 
 Only these files are required initially:
@@ -42,25 +44,25 @@ Only these files are required initially:
 
 Do not start from prior vulnerability reports, prior reviewer conclusions, or Pass A/AP2 conclusions.
 
-## Minimal execution
+## Access, confidentiality, and minimal execution
 
-Prerequisite:
+Repository access:
 
-- Node.js compatible with the repository's declared engine requirements.
+- this repository is **private**;
+- the reviewer needs explicit GitHub collaborator access before cloning or reading the review target;
+- findings, reproductions, screenshots, and repository contents should remain confidential and must not be published or shared outside the review until explicit agreement with the repository owner.
 
-Run the full test suite:
+Environment:
+
+- use **Node.js 22** for the review environment.
+
+Start with one command:
 
 ```bash
 npm test
 ```
 
-Run only the continuity matrix:
-
-```bash
-node --test test/identity-continuity-v0.test.mjs
-```
-
-The reviewer may add local tests or scripts. Those local changes do not need to be proposed upstream unless they expose a finding worth preserving.
+The reviewer may then add local adversarial tests or scripts as needed. Those local changes do not need to be proposed upstream unless they expose a finding worth preserving.
 
 ## Success / failure criterion
 
